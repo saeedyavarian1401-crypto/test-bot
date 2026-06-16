@@ -1,50 +1,45 @@
 from flask import Flask, request
-from groq import Groq
+import requests
 
 app = Flask(__name__)
 
 TOKEN = "8624726972:AAHa89X4pWrLaD7c-GI3OUjmx7FuSL-5pQQ"
-# کلید جدید یا قدیمی رو اینجا بذار
-GROQ_API_KEY = "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"
-
-# راه‌اندازی مشتری گروک
-client = Groq(api_key=GROQ_API_KEY)
+GROQ_KEY = "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"
 
 def send_message(chat_id, text):
     url = f"https://api.telegram.org/bot{TOKEN}/sendMessage"
     try:
         requests.post(url, json={"chat_id": chat_id, "text": text})
-    except Exception as e:
-        print(f"خطا در ارسال: {e}")
+    except:
+        pass
 
 def ask_groq(question):
+    url = "https://api.groq.com/openai/v1/chat/completions"
+    headers = {"Authorization": f"Bearer {GROQ_KEY}", "Content-Type": "application/json"}
+    data = {
+        "model": "llama3-70b-8192",
+        "messages": [{"role": "user", "content": question}]
+    }
     try:
-        chat_completion = client.chat.completions.create(
-            messages=[{"role": "user", "content": question}],
-            model="llama-3.3-70b-versatile",  # مدل جدید و پایدار
-        )
-        return chat_completion.choices[0].message.content
-    except Exception as e:
-        print(f"خطا در گروک: {e}")
-        return f"❌ خطا: {e}"
+        r = requests.post(url, headers=headers, json=data, timeout=20)
+        return r.json()["choices"][0]["message"]["content"]
+    except:
+        return "❌ خطا"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
-    try:
-        update = request.get_json()
-        if update and 'message' in update:
-            chat_id = update['message']['chat']['id']
-            text = update['message'].get('text', '')
-            if text == '/start':
-                send_message(chat_id, "سلام! من ربات هوشمند با گروک جدید هستم.")
-            elif text:
-                send_message(chat_id, "🤔 در حال فکر کردن...")
-                answer = ask_groq(text)
-                send_message(chat_id, answer)
-        return "ok", 200
-    except Exception as e:
-        return "error", 500
+    update = request.get_json()
+    if update and 'message' in update:
+        chat_id = update['message']['chat']['id']
+        text = update['message'].get('text', '')
+        if text == '/start':
+            send_message(chat_id, "سلام! ربات روشن شد.")
+        elif text:
+            send_message(chat_id, "🤔 در حال فکر کردن...")
+            answer = ask_groq(text)
+            send_message(chat_id, answer)
+    return "ok", 200
 
 @app.route('/')
 def home():
-    return "ربات هوشمند با گروک جدید فعال است", 200
+    return "ربات روشن است", 200
