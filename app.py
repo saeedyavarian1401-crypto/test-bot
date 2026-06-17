@@ -2372,3 +2372,10 @@ class BotKeyboard:
             'one_time_keyboard': False,
             'persistent': True
         }
+@app.route('/')
+def home():
+    return """
+    <h1>🔮 ربات جفر هوشمند</h1>
+    <p>ربات فعال است ✅</p>
+    <p>برای استفاده به تلگرام بروید</p>
+    """
