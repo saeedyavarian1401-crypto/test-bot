@@ -2350,7 +2350,7 @@ def set_bot_commands():
         commands = [
             {"command": "start", "description": "🔄 شروع مجدد"},
             
-            {"command": "menu", "description": "📋 منوی اصلی"},
+          
             {"command": "history", "description": "📊 تاریخچه سوالات"},
             {"command": "stats", "description": "📈 آمار من"},
             {"command": "help", "description": "📖 راهنما"},
@@ -2384,12 +2384,12 @@ class BotKeyboard:
     @staticmethod
     def get_main_keyboard():
         keyboard = [
-            ['🔮 جفرگیری', '📊 تاریخچه'],
+            [' جفرگیری', '],
             ['☕ فال قهوه', '✋ کف‌بینی'],
             ['📖 فال حافظ', '📖 فال قرآن'],
             ['🃏 فال تاروت', '🤲 استخاره'],
-            ['🔐 طلسمات ویژه', '📈 آمار من'],
-            ['📖 راهنما', 'ℹ️ درباره'],
+            [' طلسمات ویژه', '],
+           ,
             ['❌ لغو عملیات']
         ]
         return {
