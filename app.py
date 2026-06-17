@@ -855,3 +855,92 @@ if __name__ == '__main__':
     
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+# ==================== کیبورد دائمی ====================
+class BotKeyboard:
+    """کیبورد دائمی در پایین صفحه"""
+    
+    @staticmethod
+    def get_main_keyboard() -> Dict:
+        """کیبورد اصلی - همیشه در پایین صفحه"""
+        keyboard = [
+            ['🔮 جفرگیری', '📊 تاریخچه'],
+            ['📖 راهنما', '📈 آمار من'],
+            ['ℹ️ درباره', '❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,      # اندازه کیبورد با صفحه هماهنگ شود
+            'one_time_keyboard': False,   # بعد از استفاده پنهان نشود
+            'persistent': True            # همیشه نشان داده شود
+        }
+    
+    @staticmethod
+    def get_cancel_keyboard() -> Dict:
+        """کیبورد با دکمه لغو"""
+        keyboard = [
+            ['❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,
+            'one_time_keyboard': False,
+            'persistent': True
+        }
+        # در کلاس TelegramBot
+@staticmethod
+def send_message(chat_id: str, text: str, parse_mode: str = 'Markdown', 
+                 reply_markup: Optional[Dict] = None) -> bool:
+    """ارسال پیام با کیبورد دائمی"""
+    try:
+        payload = {
+            'chat_id': chat_id,
+            'text': text,
+            'parse_mode': parse_mode
+        }
+        
+        # اگر کیبورد مشخص نشده، از کیبورد اصلی استفاده کن
+        if reply_markup is None:
+            reply_markup = BotKeyboard.get_main_keyboard()
+        
+        payload['reply_markup'] = json.dumps(reply_markup)
+        
+        response = requests.post(
+            f"{TelegramBot.BASE_URL}/sendMessage",
+            json=payload,
+            timeout=10
+        )
+        return response.status_code == 200
+    except Exception as e:
+        logger.error(f"خطا در ارسال پیام: {e}")
+        return False
+        # در وب‌هوک
+if text == '/start' or text == '/menu':
+    TelegramBot.send_message(
+        chat_id,
+        "🔮 **ربات جفر**\n\nسلام! 👋\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+        reply_markup=BotKeyboard.get_main_keyboard()  # کیبورد دائمی
+    )
+    return jsonify({'status': 'ok'}), 200
+    # وقتی کاربر مراحل جفر را طی می‌کند
+if step == 'name':
+    TelegramBot.send_message(
+        chat_id,
+        "👤 **نام خود را وارد کنید:**",
+        reply_markup=BotKeyboard.get_cancel_keyboard()  # فقط دکمه لغو
+    )
+    # اگر می‌خواهید کیبورد موقتاً پنهان شود
+TelegramBot.send_message(
+    chat_id,
+    "✅ عملیات با موفقیت انجام شد.",
+    reply_markup={'remove_keyboard': True}  # حذف کیبورد
+)
+
+# بعد دوباره نمایش دهید
+TelegramBot.send_message(
+    chat_id,
+    "🔮 منوی اصلی",
+    reply_markup=BotKeyboard.get_main_keyboard()  # بازگشت کیبورد
+)
+🔮 جفرگیری     📊 تاریخچه
+📖 راهنما       📈 آمار من
+ℹ️ درباره       ❌ لغو عملیات
