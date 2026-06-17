@@ -38,26 +38,17 @@ JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
 
-# ==================== سیستم رمز طلسم (کاملاً امن) ====================
-import os
-import hashlib
-from functools import wraps
-
-# رمز از محیط خوانده میشه - هیچ جا توی کد نیست
+# ==================== سیستم رمز طلسم (امن) ====================
 TALISMAN_SALT = b'occult_talisman_salt_2024'
 
 def _get_talisman_hash() -> str:
-    """دریافت هش رمز از متغیر محیطی"""
-    # رمز از متغیر محیطی خونده میشه
     password = os.environ.get('TALISMAN_PASSWORD', '')
     if not password:
         raise ValueError("❌ رمز طلسم در متغیرهای محیطی تنظیم نشده است!")
     return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
 
 def _hash_input(password: str) -> str:
-    """هش کردن ورودی کاربر"""
     return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
-
 
 class TalismanProtector:
     _instance = None
@@ -86,33 +77,26 @@ class TalismanProtector:
     
     def lock(self):
         self._unlocked = False
-    
-    @staticmethod
-    def require_unlock(func):
-        @wraps(func)
-        def wrapper(*args, **kwargs):
-            if not talisman_protector.is_unlocked():
-                raise PermissionError("🔒 برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
-            return func(*args, **kwargs)
-        return wrapper
-
 
 talisman_protector = TalismanProtector()
 
 
 # ==================== طلسمات ====================
-
 PUBLIC_TALISMANS = [
     {"کاربرد": "رزق و روزی", "طلسم": "مربع جادویی 4×4", "روز": "پنجشنبه", "ساعت": "مشتری"},
     {"کاربرد": "محبت و دوستی", "طلسم": "ستاره داوود", "روز": "جمعه", "ساعت": "زهره"},
     {"کاربرد": "دفع بلا", "طلسم": "خاتم سلیمان", "روز": "سه‌شنبه", "ساعت": "مریخ"},
+    {"کاربرد": "گشایش کار", "طلسم": "وفق ابواب الفرج", "روز": "پنجشنبه", "ساعت": "مشتری"},
+    {"کاربرد": "شفای بیماری", "طلسم": "حرز شفا", "روز": "دوشنبه", "ساعت": "ماه"},
 ]
 
 PROTECTED_TALISMANS = [
-    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی قدرت", "روز": "یکشنبه", "ساعت": "شمس"},
-    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره"},
+    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی قدرت", "روز": "یکشنبه", "ساعت": "شمس", "درجه": "ویژه"},
+    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره", "درجه": "بسیار ویژه"},
+    {"کاربرد": "بخت گشایی", "طلسم": "طلسم الفتح العظیم", "روز": "پنجشنبه", "ساعت": "مشتری", "درجه": "نادر"},
+    {"کاربرد": "تسخیر قلوب", "طلسم": "خاتم سلیمانی", "روز": "دوشنبه", "ساعت": "عطارد", "درجه": "فوق‌العاده"},
+    {"کاربرد": "دفع سحر", "طلسم": "حرز امان", "روز": "سه‌شنبه", "ساعت": "زحل", "درجه": "ویژه"},
 ]
-
 
 def get_talismans(with_protected: bool = False, password: str = None):
     talismans = PUBLIC_TALISMANS.copy()
@@ -126,6 +110,8 @@ def get_talismans(with_protected: bool = False, password: str = None):
             raise PermissionError("❌ رمز اشتباه است!")
     
     return talismans
+
+
 # ==================== JWT احراز هویت ====================
 JWT_ALGORITHM = "HS256"
 JWT_EXPIRE_MINUTES = 60
@@ -150,6 +136,7 @@ def verify_jwt_token(token: str) -> Optional[Dict]:
         return {"error": "توکن منقضی شده است"}
     except jwt.InvalidTokenError:
         return {"error": "توکن نامعتبر است"}
+
 
 # ==================== Rate Limiter ====================
 class RateLimiter:
@@ -180,13 +167,9 @@ class RateLimiter:
                 bucket["tokens"] -= tokens
                 return True
             return False
-    
-    def get_available_tokens(self, key: str) -> float:
-        bucket = self._get_bucket(key)
-        with self._lock:
-            return bucket["tokens"]
 
 rate_limiter = RateLimiter(capacity=100, refill_rate=10, refill_interval=1)
+
 
 # ==================== Circuit Breaker ====================
 class CircuitBreaker:
@@ -226,6 +209,7 @@ class CircuitBreaker:
             return {"error": str(e)}
 
 circuit_breaker = CircuitBreaker("predictor", failure_threshold=5, recovery_timeout=60)
+
 
 # ==================== Redis Cache ====================
 class RedisCache:
@@ -270,11 +254,9 @@ class RedisCache:
             except:
                 pass
         self._fallback[key] = (value, time.time() + self.ttl)
-    
-    def is_enabled(self) -> bool:
-        return self._enabled
 
 cache = RedisCache()
+
 
 # ==================== دیتابیس ====================
 class Database:
@@ -428,46 +410,9 @@ class Database:
                  json.dumps(fortune_result) if fortune_result else None)
             )
             conn.commit()
-    
-    def save_prediction(self, prediction_id: str, user_id: str, name: str, mother: str, 
-                        birth_date: str, question: str, result: Dict, processing_time_ms: float, mode: str = "complete"):
-        encrypted_result = base64.b64encode(json.dumps(result, ensure_ascii=False).encode()).decode()
-        with self.get_connection() as conn:
-            conn.execute('''
-                INSERT INTO predictions (id, user_id, name, mother, birth_date, question, result_encrypted, created_at, processing_time_ms, mode)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ''', (prediction_id, user_id, name, mother, birth_date, question, encrypted_result, 
-                  datetime.now().isoformat(), processing_time_ms, mode))
-            conn.commit()
-    
-    def save_fortune_reading(self, reading_id: str, user_id: str, reading_type: str, input_data: Dict, result: Dict):
-        encrypted_result = base64.b64encode(json.dumps(result, ensure_ascii=False).encode()).decode()
-        with self.get_connection() as conn:
-            conn.execute('''
-                INSERT INTO fortune_readings (id, user_id, type, input_data, result_encrypted, created_at)
-                VALUES (?, ?, ?, ?, ?, ?)
-            ''', (reading_id, user_id, reading_type, json.dumps(input_data), encrypted_result, datetime.now().isoformat()))
-            conn.commit()
-    
-    def get_stats(self) -> Dict:
-        with self.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute('SELECT COUNT(*) FROM predictions')
-            total_predictions = cursor.fetchone()[0]
-            cursor.execute('SELECT AVG(processing_time_ms) FROM predictions')
-            avg_time = cursor.fetchone()[0] or 0
-            cursor.execute('SELECT COUNT(*) FROM requests WHERE status_code = 200')
-            success_requests = cursor.fetchone()[0]
-            cursor.execute('SELECT COUNT(*) FROM requests')
-            total_requests = cursor.fetchone()[0] or 1
-            return {
-                "total_predictions": total_predictions,
-                "average_processing_time_ms": round(avg_time, 2),
-                "success_rate": round((success_requests / total_requests) * 100, 2),
-                "total_requests": total_requests
-            }
 
 db = Database()
+
 
 # ==================== کلاس‌های داده ====================
 @dataclass
@@ -480,6 +425,7 @@ class JafrResult:
     
     def to_dict(self):
         return asdict(self)
+
 
 # ==================== فرهنگ ابجد ====================
 ABJAD = {
@@ -509,6 +455,7 @@ def reduce_to_single(n: int) -> int:
 def life_path_number(day: int, month: int, year: int) -> int:
     total = sum(int(d) for d in f"{day}{month}{year}")
     return reduce_to_single(total)
+
 
 # ==================== طالع و بروج ====================
 ZODIAC = [
@@ -557,6 +504,7 @@ def get_zodiac(day: int, month: int, year: int) -> Dict:
                 return z
     return ZODIAC[0]
 
+
 # ==================== تحلیلگر سوال ====================
 class QuestionAnalyzer:
     NEGATIVE_KEYWORDS = {
@@ -583,6 +531,7 @@ class QuestionAnalyzer:
             'is_negative_question': has_negative and not has_positive,
             'is_positive_question': has_positive and not has_negative
         }
+
 
 # ==================== جفر 36 و 360 ====================
 @lru_cache(maxsize=128)
@@ -617,6 +566,7 @@ def jafar_360(question: str, name: str, mother: str) -> Dict:
         return {"answer": "❌ خیر - مانع داره", "score": 35, "advice": "بهتره منصرف شی", "degree": "ضعیف"}
     else:
         return {"answer": "❌ خیر قطعی - مشکل داره", "score": 20, "advice": "اصلاً مناسب نیست", "degree": "خیلی ضعیف"}
+
 
 # ==================== جفر هوشمند ====================
 class SmartJafrCalculator:
@@ -813,6 +763,7 @@ class SmartJafrCalculator:
                     remainder=remainder
                 )
 
+
 # ==================== رمل 8 و 16 شکل ====================
 RAML_8 = {
     "اطلال": {"sign": "⚪⚪⚪⚪", "element": "آتش", "meaning": "رفتن و از دست دادن", "good": False},
@@ -858,6 +809,7 @@ def raml_extract(name: str, use_16: bool = False) -> Dict:
         "element": shape["element"]
     }
 
+
 # ==================== همزاد ====================
 HAMZAD_SYMPTOMS = [
     "تنگی رزق", "عصبانیت بی‌دلیل", "کم شدن آرامش", "افکار منفی",
@@ -897,6 +849,7 @@ def hamzad_name(name: str) -> Dict:
         "jinni": ''.join(reversed(letters)) + "ؤش",
         "total": total
     }
+
 
 # ==================== اوقات سعد و نحس ====================
 SAAD_NAHS = {
@@ -945,6 +898,7 @@ def get_planetary_hour(hour: int) -> Dict:
         "is_saad": "سعد" in planet_info
     }
 
+
 # ==================== معادن و کواکب ====================
 MINERALS = {
     "شمس": {"metal": "طلا", "plant": "صندل", "animal": "شیر", "incense": "عود", "color": "زرد"},
@@ -969,6 +923,7 @@ def get_purification_method(metal: str) -> str:
         "آهن": "با آب و زاج سفید شسته شود سپس با دمشقی بخور داده شود"
     }
     return PURIFICATION_METHODS.get(metal, "با آب پاک شسته شود و با عود بخور داده شود")
+
 
 # ==================== تکسیر و بسط ====================
 def taksir_correct(word: str, iterations: int = 4) -> Dict:
@@ -1035,6 +990,7 @@ def get_dominant_tab(word: str) -> Dict:
     dominant = max(counts, key=counts.get)
     return {"tab": dominant, "counts": counts}
 
+
 # ==================== زایجه عدل ====================
 def zayejah_adl(question: str, qamari_day: int = 15, hour: Optional[int] = None) -> Dict:
     if hour is None:
@@ -1064,6 +1020,7 @@ def zayejah_adl(question: str, qamari_day: int = 15, hour: Optional[int] = None)
         "day": days[remainder]
     }
 
+
 # ==================== تعبیر خواب ====================
 DREAM_SYMBOLS = {
     "شیر": "قدرت و سلطنت", "مار": "دشمن پنهان", "کلید": "گشایش کار",
@@ -1084,51 +1041,6 @@ def get_dream_interpretation(dream: str) -> Tuple[str, str]:
             return (value, "قوی")
     return (f"{dream}: نشانه خیر و برکت است", "متوسط")
 
-# ==================== طلسمات ====================
-PUBLIC_TALISMANS = [
-    {"کاربرد": "رزق و روزی", "طلسم": "مربع جادویی 4×4", "روز": "پنجشنبه", "ساعت": "مشتری"},
-    {"کاربرد": "محبت و دوستی", "طلسم": "ستاره داوود", "روز": "جمعه", "ساعت": "زهره"},
-    {"کاربرد": "دفع بلا", "طلسم": "خاتم سلیمان", "روز": "سه‌شنبه", "ساعت": "مریخ"},
-    {"کاربرد": "گشایش کار", "طلسم": "وفق ابواب الفرج", "روز": "پنجشنبه", "ساعت": "مشتری"},
-    {"کاربرد": "شفای بیماری", "طلسم": "حرز شفا", "روز": "دوشنبه", "ساعت": "ماه"},
-]
-
-PROTECTED_TALISMANS = [
-    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی 4×4 قدرت", "روز": "یکشنبه", "ساعت": "شمس", "درجه": "ویژه"},
-    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره", "درجه": "بسیار ویژه"},
-    {"کاربرد": "بخت گشایی", "طلسم": "طلسم الفتح العظیم", "روز": "پنجشنبه", "ساعت": "مشتری", "درجه": "نادر"},
-    {"کاربرد": "تسخیر قلوب", "طلسم": "خاتم سلیمانی", "روز": "دوشنبه", "ساعت": "عطارد", "درجه": "فوق‌العاده"},
-    {"کاربرد": "دفع سحر", "طلسم": "حرز امان", "روز": "سه‌شنبه", "ساعت": "زحل", "درجه": "ویژه"},
-]
-
-NEW_MAGIC_SQUARES = [
-    {"نام": "مثلث خالی الوسط", "ابعاد": "3×3"},
-    {"نام": "مخمسه خالی الوسط", "ابعاد": "5×5"},
-]
-
-NEW_SHAPES = [
-    {"نام": "دایره جادویی", "کاربرد": "طلسمات محافظتی"},
-    {"نام": "مثلث جادویی", "کاربرد": "طلسمات تسخیر"},
-    {"نام": "ستاره داوود", "کاربرد": "طلسمات محبت"},
-]
-
-NEW_ADKAR = [
-    {"نام": "ذکر 'یا حی یا قیوم'", "تعداد": 1000, "کاربرد": "طی الارض"},
-    {"نام": "اسم 'الوهاب'", "تعداد": 4, "کاربرد": "رزق"},
-    {"نام": "دعوة الجلجلوتية الصغرى", "کاربرد": "تسخیر"},
-]
-
-def get_talismans(with_protected: bool = False, password: str = None) -> List[Dict]:
-    talismans = PUBLIC_TALISMANS.copy()
-    
-    if with_protected:
-        if password and talisman_protector.unlock(password):
-            talismans.extend(PROTECTED_TALISMANS)
-            logger.info("🔓 طلسمات ویژه به لیست اضافه شد")
-        elif not talisman_protector.is_unlocked():
-            logger.warning("🔒 برای دیدن طلسمات ویژه، رمز ۱۳۶۴۰۶۲۴ را وارد کنید")
-    
-    return talismans
 
 # ==================== فال قهوه ====================
 COFFEE_SYMBOLS = {
@@ -1138,31 +1050,14 @@ COFFEE_SYMBOLS = {
     "خورشید": {"meaning": "موفقیت، خوشبختی و روشنایی کامل", "type": "خوب", "score": 98},
     "ستاره": {"meaning": "آرزوها برآورده می‌شود، شانس و اقبال", "type": "خوب", "score": 92},
     "گل": {"meaning": "خوشبختی بزرگ، دوستان خوب و عشق پایدار", "type": "خوب", "score": 88},
-    "ماهی": {"meaning": "خبرهای خوب از کشور دیگر، رزق و روزی", "type": "خوب", "score": 85},
-    "پرنده": {"meaning": "شانس خوب، احتمالاً سفر خوب", "type": "خوب", "score": 80},
     "مار": {"meaning": "دشمن پنهان، احتیاط کنید", "type": "بد", "score": 25},
     "عقرب": {"meaning": "خطر نزدیک است", "type": "بد", "score": 20},
     "کلاغ": {"meaning": "خبر بد در راه است", "type": "بد", "score": 15},
     "تابوت": {"meaning": "بیماری طولانی یا خبر تلخ", "type": "بد", "score": 10},
-    "شتر": {"meaning": "صبر و استقامت، موفقیت دیر اما پایدار", "type": "متوسط", "score": 50},
-    "کوه": {"meaning": "موانع بزرگ، اما با تلاش قابل عبور", "type": "متوسط", "score": 45},
-    "درخت": {"meaning": "رشد، برکت، نعمت پایدار", "type": "خوب", "score": 82},
-    "چشم": {"meaning": "حسادت، باید محافظت کنید", "type": "بد", "score": 30},
     "کلید": {"meaning": "گشایش کارها، راه حل مشکلات", "type": "خوب", "score": 87},
-    "قفل": {"meaning": "موانع، مشکلات، نیاز به صبر", "type": "بد", "score": 35},
     "کتاب": {"meaning": "دانش، علم، موفقیت تحصیلی", "type": "خوب", "score": 86},
-    "قلم": {"meaning": "نوشتن، امضا، قرارداد مهم", "type": "خوب", "score": 84},
     "خانه": {"meaning": "آرامش، ثبات، زندگی خوب", "type": "خوب", "score": 83},
-    "ماشین": {"meaning": "سفر، تغییر مکان", "type": "متوسط", "score": 55},
-    "تپانچه": {"meaning": "دعوا، درگیری، خطر", "type": "بد", "score": 18},
-    "خنجر": {"meaning": "خیانت، دشمنی نزدیک", "type": "بد", "score": 12},
-    "زن": {"meaning": "خبر از طرف یک زن", "type": "متوسط", "score": 60},
-    "مرد": {"meaning": "خبر از طرف یک مرد", "type": "متوسط", "score": 60},
-    "فرشته": {"meaning": "خبر خوب، کمک الهی", "type": "خوب", "score": 96},
-    "صلیب": {"meaning": "رنج، فداکاری، اما پیروزی نهایی", "type": "متوسط", "score": 48},
-    "دایره": {"meaning": "چرخه کامل، پایان خوب", "type": "خوب", "score": 78},
-    "مربع": {"meaning": "ثبات، امنیت، زندان", "type": "متوسط", "score": 52},
-    "مثلث": {"meaning": "تغییر، تحول، موفقیت", "type": "خوب", "score": 75}
+    "فرشته": {"meaning": "خبر خوب، کمک الهی", "type": "خوب", "score": 96}
 }
 
 def coffee_reading(symbols: List[str]) -> Dict:
@@ -1201,13 +1096,6 @@ def coffee_reading(symbols: List[str]) -> Dict:
         overall = "متوسط"
         advice = "فال شما متوسط است. نتیجه به تلاش شما بستگی دارد."
     
-    if "مار" in symbols or "عقرب" in symbols:
-        advice += " مراقب اطرافیان خود باشید."
-    if "تاج" in symbols or "خورشید" in symbols:
-        advice += " به زودی خبر بسیار خوبی می‌شنوید."
-    if "تابوت" in symbols:
-        advice += " به سلامت خود بیشتر توجه کنید."
-    
     return {
         "type": "coffee_reading",
         "symbols_found": symbols,
@@ -1216,6 +1104,7 @@ def coffee_reading(symbols: List[str]) -> Dict:
         "overall": overall,
         "advice": advice
     }
+
 
 # ==================== کف‌بینی ====================
 PALM_LINES = {
@@ -1257,30 +1146,7 @@ PALM_LINES = {
             "زنجیره‌ای": "سلامت ضعیف، استرس بالا، دوران سخت",
             "عمیق": "سلامت قوی، انرژی حیاتی بالا"
         }
-    },
-    "fate_line": {
-        "name": "خط سرنوشت",
-        "positions": ["مستقیم", "منقطع", "شاخه‌دار", "کوتاه", "عمیق", "ضعیف", "مبتدی"],
-        "meanings": {
-            "مستقیم": "مسیر شغلی روشن، موفقیت پایدار",
-            "منقطع": "تغییر شغل، مشکلات موقتی",
-            "شاخه‌دار": "چندین منبع درآمد، موفقیت در چند زمینه",
-            "کوتاه": "موفقیت دیرهنگام، تلاش بیشتر نیاز دارد",
-            "عمیق": "موفقیت بزرگ، سرنوشت مشخص",
-            "ضعیف": "نیاز به تلاش بیشتر، عدم تمرکز",
-            "مبتدی": "شروع دیرهنگام حرفه، تغییر مسیر"
-        }
     }
-}
-
-PALM_MOUNTS = {
-    "mount_jupiter": {"name": "کوه مشتری", "meaning": "رهبری، جاه‌طلبی، اعتماد به نفس"},
-    "mount_saturn": {"name": "کوه زحل", "meaning": "مسئولیت، جدیت، خرد"},
-    "mount_apollo": {"name": "کوه آپولو", "meaning": "خلاقیت، هنر، خوشبختی"},
-    "mount_mercury": {"name": "کوه عطارد", "meaning": "تجارت، هوش، ارتباطات"},
-    "mount_venus": {"name": "کوه زهره", "meaning": "عشق، هنر، لذت‌های زندگی"},
-    "mount_mars": {"name": "کوه مریخ", "meaning": "شجاعت، قدرت، تهاجم مثبت"},
-    "mount_luna": {"name": "کوه ماه", "meaning": "خیال، سفر، احساسات"}
 }
 
 def palm_reading(lines: Dict[str, str], mounts: List[str]) -> Dict:
@@ -1300,13 +1166,6 @@ def palm_reading(lines: Dict[str, str], mounts: List[str]) -> Dict:
                 "position": position,
                 "meaning": PALM_LINES[line_key]["meanings"][position]
             }
-    
-    for mount in mounts:
-        if mount in PALM_MOUNTS:
-            results["mounts_interpretation"].append({
-                "name": PALM_MOUNTS[mount]["name"],
-                "meaning": PALM_MOUNTS[mount]["meaning"]
-            })
     
     strengths = []
     weaknesses = []
@@ -1331,17 +1190,11 @@ def palm_reading(lines: Dict[str, str], mounts: List[str]) -> Dict:
     
     results["strengths"] = strengths
     results["weaknesses"] = weaknesses
-    
-    if "کوه مشتری" in [m["name"] for m in results["mounts_interpretation"]]:
-        results["advice"] = "از توانایی رهبری خود استفاده کنید اما مغرور نشوید."
-    elif "کوه زهره" in [m["name"] for m in results["mounts_interpretation"]]:
-        results["advice"] = "از هنر و خلاقیت خود برای پیشرفت استفاده کنید."
-    else:
-        results["advice"] = "روی نقاط قوت خود تمرکز کنید و نقاط ضعف را بهبود بخشید."
-    
+    results["advice"] = "روی نقاط قوت خود تمرکز کنید و نقاط ضعف را بهبود بخشید."
     results["overall_personality"] = f"شخصیتی با {len(strengths)} نقطه قوت و {len(weaknesses)} نقطه ضعف"
     
     return results
+
 
 # ==================== فال حافظ ====================
 HAFEZ_GHAZALS = [
@@ -1360,13 +1213,13 @@ def hafez_fal(niyat: str = "") -> Dict:
     
     additional_interpretation = ""
     if "عشق" in niyat or "ازدواج" in niyat:
-        additional_interpretation = "فال شما در امور عشقی بسیار نیک است. حافظ می‌گوید عشق حقیقی را جستجو کن."
+        additional_interpretation = "فال شما در امور عشقی بسیار نیک است."
     elif "کار" in niyat or "شغل" in niyat:
-        additional_interpretation = "در امور شغلی، صبور باش و به تلاشت ادامه بده. موفقیت نزدیک است."
+        additional_interpretation = "در امور شغلی، صبور باش و به تلاشت ادامه بده."
     elif "درس" in niyat or "تحصیل" in niyat:
         additional_interpretation = "طلب علم و دانش، راهگشای تو خواهد بود."
     else:
-        additional_interpretation = "زندگی را با شادی و آرامش ادامه بده. حافظ تو را به خوشباشی دعوت می‌کند."
+        additional_interpretation = "زندگی را با شادی و آرامش ادامه بده."
     
     return {
         "type": "hafez_fal",
@@ -1377,6 +1230,7 @@ def hafez_fal(niyat: str = "") -> Dict:
         "niyat": niyat if niyat else "بدون نیت خاص",
         "advice": "به شعله‌ی شمع دل خود اعتماد کن و به راهت ادامه بده."
     }
+
 
 # ==================== فال قرآن ====================
 QURAN_VERSES = [
@@ -1417,6 +1271,7 @@ def quran_fal(question: str = "") -> Dict:
         "question": question if question else "عمومی",
         "advice": "به قرآن ایمان داشته باش و به راهت ادامه بده."
     }
+
 
 # ==================== فال تاروت ====================
 TAROT_MAJOR_ARCANA = {
@@ -1490,15 +1345,12 @@ def tarot_reading(spread_type: str = "three_card", cards: List[int] = None) -> D
         "advice": advice
     }
 
+
 # ==================== استخاره ====================
 ISTIKHARA_PRAYER = """
 اللَّهُمَّ إِنِّي أَسْتَخِيرُكَ بِعِلْمِكَ، وَأَسْتَقْدِرُكَ بِقُدْرَتِكَ، 
 وَأَسْأَلُكَ مِنْ فَضْلِكَ الْعَظِيمِ، فَإِنَّكَ تَقْدِرُ وَلَا أَقْدِرُ، 
 وَتَعْلَمُ وَلَا أَعْلَمُ، وَأَنْتَ عَلَّامُ الْغُيُوبِ.
-اللَّهُمَّ إِنْ كُنْتَ تَعْلَمُ أَنَّ هَذَا الْأَمْرَ خَيْرٌ لِي فِي دِينِي وَمَعَاشِي وَعَاقِبَةِ أَمْرِي 
-فَاقْدُرْهُ لِي وَيَسِّرْهُ لِي ثُمَّ بَارِكْ لِي فِيهِ.
-وَإِنْ كُنْتَ تَعْلَمُ أَنَّ هَذَا الْأَمْرَ شَرٌّ لِي فِي دِينِي وَمَعَاشِي وَعَاقِبَةِ أَمْرِي 
-فَاصْرِفْهُ عَنِّي وَاصْرِفْنِي عَنْهُ، وَاقْدُرْ لِيَ الْخَيْرَ حَيْثُ كَانَ ثُمَّ أَرْضِنِي بِهِ.
 """
 
 def istikhara(issue: str) -> Dict:
@@ -1542,6 +1394,7 @@ def istikhara(issue: str) -> Dict:
         "recommendation": recommendation,
         "instruction": "۲ رکعت نماز استخاره بخوان، سپس این دعا را بخوان و به علامت‌ها توجه کن."
     }
+
 
 # ==================== کلاس پیشگویی نهایی ====================
 class UltimatePredictor:
@@ -1624,9 +1477,6 @@ class UltimatePredictor:
             "zayejah": zayejah,
             "dream_interpretation": dream_interpretation,
             "talismans": talismans,
-            "new_magic_squares": NEW_MAGIC_SQUARES,
-            "new_shapes": NEW_SHAPES,
-            "new_adkar": NEW_ADKAR,
             "processing_time_ms": (time.time() - start_time) * 1000,
             "from_cache": False
         }
@@ -1636,17 +1486,18 @@ class UltimatePredictor:
 
 predictor = UltimatePredictor()
 
-# ==================== کیبورد دائمی ====================
+
+# ==================== کیبورد دائمی (منوی جدید) ====================
 class BotKeyboard:
     @staticmethod
     def get_main_keyboard():
         keyboard = [
-            ['🔮 جفرگیری', '📊 تاریخچه'],
-            ['☕ فال قهوه', '✋ کف‌بینی'],
-            ['📖 فال حافظ', '📖 فال قرآن'],
-            ['🃏 فال تاروت', '🤲 استخاره'],
-            ['📖 راهنما', '📈 آمار من'],
-            ['🔐 طلسمات ویژه', 'ℹ️ درباره'],
+            ['🔮 جفرگیری', '☕ فال قهوه'],
+            ['✋ کف‌بینی', '📖 فال حافظ'],
+            ['📖 فال قرآن', '🃏 فال تاروت'],
+            ['🤲 استخاره', '🔐 طلسمات ویژه'],
+            ['📊 تاریخچه', '📈 آمار من'],
+            ['📖 راهنما', 'ℹ️ درباره'],
             ['❌ لغو عملیات']
         ]
         return {
@@ -1668,6 +1519,7 @@ class BotKeyboard:
             'persistent': True
         }
 
+
 # ==================== تلگرام ====================
 class TelegramBot:
     BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
@@ -1685,6 +1537,7 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"خطا در ارسال پیام: {e}")
             return False
+
 
 # ==================== مدیریت کاربر ====================
 class UserManager:
@@ -1741,9 +1594,8 @@ class UserManager:
     @staticmethod
     def get_help_message() -> str:
         return """
-📖 **راهنمای کامل ربات جفر + علوم غریبه**
+🔮 **۱۷ قابلیت ربات جفر + علوم غریبه:**
 
-🔮 **قابلیت‌های ربات:**
 1. 🔮 جفر ۳۶ و ۳۶۰ هوشمند
 2. ☕ فال قهوه
 3. ✋ کف‌بینی
@@ -1753,12 +1605,16 @@ class UserManager:
 7. 🤲 استخاره
 8. 🎲 رمل (۸ و ۱۶ شکل)
 9. 👹 تشخیص همزاد
-10. 🔐 طلسمات (عمومی و ویژه با رمز ۱۳۶۴۰۶۲۴)
+10. 🔐 طلسمات (عمومی و ویژه)
 11. ⚗️ زایجه عدل
 12. 💭 تعبیر خواب
 13. 📊 عدد شناسی و طالع
+14. ⏰ اوقات سعد و نحس
+15. ⚗️ معادن و کواکب
+16. 🔄 تکسیر و بسط
+17. 🤖 هوش مصنوعی گروک
 
-⚠️ **توجه:** صرفاً جنبه سرگرمی دارد.
+📌 برای استفاده، از دکمه‌های پایین صفحه انتخاب کنید.
 """
     
     @staticmethod
@@ -1891,7 +1747,6 @@ class UserManager:
 💡 توصیه: {j360['advice']}
 """
         
-        # اضافه کردن اطلاعات تکمیلی
         response += f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 🎲 **پیشگویی رملی**
@@ -1945,7 +1800,6 @@ class UserManager:
     
     @staticmethod
     def do_palm_reading(chat_id: str, text: str) -> str:
-        # پارس کردن خطوط
         lines_input = {}
         for line in text.split('\n'):
             if ':' in line:
@@ -2133,14 +1987,14 @@ class UserManager:
         if talisman_protector.is_unlocked():
             response += "🔓 **طلسمات ویژه فعال است**\n\n"
         else:
-            response += "🔒 **طلسمات ویژه قفل است**\nبرای فعال‌سازی رمز ۱۳۶۴۰۶۲۴ را وارد کنید\n\n"
+            response += "🔒 **طلسمات ویژه قفل است**\nبرای فعال‌سازی رمز را وارد کنید\n\n"
         
         for t in talismans:
             response += f"📜 **{t.get('طلسم', '')}**\n"
             response += f"   کاربرد: {t.get('کاربرد', '')}\n"
             response += f"   روز: {t.get('روز', '')} - ساعت: {t.get('ساعت', '')}\n"
-            if t.get('درجه'):
-                response += f"   درجه: {t['درجه']}\n"
+            if t.get('درجة'):
+                response += f"   درجه: {t['درجة']}\n"
             response += "\n"
         
         response += f"""
@@ -2148,6 +2002,7 @@ class UserManager:
 📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
 """
         return response
+
 
 # ==================== وب‌هوک ====================
 @app.route('/webhook', methods=['POST'])
@@ -2164,11 +2019,10 @@ def webhook():
             
             UserManager.register_user(update)
             
-            # دستورات
             if text == '/start' or text == '/menu':
                 TelegramBot.send_message(
                     chat_id,
-                    "🔮 **ربات جفر + علوم غریبه**\n\nسلام! 👋\nاین ربات شامل:\n• جفر ۳۶ و ۳۶۰\n• ☕ فال قهوه\n• ✋ کف‌بینی\n• 📖 فال حافظ\n• 📖 فال قرآن\n• 🃏 فال تاروت\n• 🤲 استخاره\n• 🔐 طلسمات ویژه (رمز: ۱۳۶۴۰۶۲۴)\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+                    "🔮 **ربات جفر + علوم غریبه**\n\nسلام! 👋\nاین ربات شامل ۱۷ قابلیت مختلف است.\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
                     reply_markup=BotKeyboard.get_main_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2182,7 +2036,6 @@ def webhook():
                 )
                 return jsonify({'status': 'ok'}), 200
             
-            # دکمه‌های کیبورد
             elif text == '🔮 جفرگیری':
                 db.save_session(chat_id, 'name', jafr_type='both')
                 TelegramBot.send_message(
@@ -2196,7 +2049,7 @@ def webhook():
                 db.save_session(chat_id, 'coffee_symbols', fortune_type='coffee')
                 TelegramBot.send_message(
                     chat_id,
-                    "☕ **فال قهوه**\n\nلطفاً نمادهایی که در ته فنجان دیده‌اید را با ویرگول (,) جدا کنید:\n\nمثال: قلب, ستاره, تاج",
+                    "☕ **فال قهوه**\n\nلطفاً نمادها را با ویرگول جدا کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2205,7 +2058,7 @@ def webhook():
                 db.save_session(chat_id, 'palm_lines', fortune_type='palm')
                 TelegramBot.send_message(
                     chat_id,
-                    "✋ **کف‌بینی**\n\nلطفاً وضعیت خطوط کف دست را وارد کنید:\n\nمثال:\nheart_line: بلند\nhead_line: مستقیم\nlife_line: طولانی",
+                    "✋ **کف‌بینی**\n\nخطوط را وارد کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2214,7 +2067,7 @@ def webhook():
                 db.save_session(chat_id, 'hafez_niyat', fortune_type='hafez')
                 TelegramBot.send_message(
                     chat_id,
-                    "📖 **فال حافظ**\n\nنیت یا سوال خود را وارد کنید (اختیاری):",
+                    "📖 **فال حافظ**\n\nنیت خود را وارد کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2223,7 +2076,7 @@ def webhook():
                 db.save_session(chat_id, 'quran_question', fortune_type='quran')
                 TelegramBot.send_message(
                     chat_id,
-                    "📖 **فال قرآن**\n\nسوال یا حاجت خود را وارد کنید (اختیاری):",
+                    "📖 **فال قرآن**\n\nسوال خود را وارد کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2237,7 +2090,7 @@ def webhook():
                 db.save_session(chat_id, 'istikhara_issue', fortune_type='istikhara')
                 TelegramBot.send_message(
                     chat_id,
-                    "🤲 **استخاره**\n\nموضوع مورد نظر برای استخاره را وارد کنید:\n\nمثال: ازدواج با فلان شخص",
+                    "🤲 **استخاره**\n\nموضوع را وارد کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -2245,7 +2098,7 @@ def webhook():
             elif text == '🔐 طلسمات ویژه':
                 TelegramBot.send_message(
                     chat_id,
-                    "🔐 **طلسمات ویژه**\n\nبرای دیدن طلسمات ویژه، رمز را وارد کنید:\n(رمز: ۱۳۶۴۰۶۲۴)\n\nیا اگر رمز ندارید، طلسمات عمومی را ببینید.",
+                    "🔐 **طلسمات ویژه**\n\nرمز را وارد کنید:",
                     reply_markup=BotKeyboard.get_cancel_keyboard()
                 )
                 db.save_session(chat_id, 'talisman_password')
@@ -2268,7 +2121,7 @@ def webhook():
             elif text == 'ℹ️ درباره':
                 TelegramBot.send_message(
                     chat_id,
-                    "ℹ️ **درباره ربات**\n\nنسخه ۵.۰.۰ کامل\nربات جفر + علوم غریبه\n\n🔮 **ویژگی‌ها:**\n• جفر ۳۶ و ۳۶۰\n• ☕ فال قهوه\n• ✋ کف‌بینی\n• 📖 فال حافظ\n• 📖 فال قرآن\n• 🃏 فال تاروت\n• 🤲 استخاره\n• 🎲 رمل\n• 👹 همزاد\n• 🔐 طلسمات\n• ⚗️ زایجه عدل\n• 💭 تعبیر خواب\n• 📊 عددشناسی"
+                    "ℹ️ **درباره ربات**\n\nنسخه ۵.۰.۰\nربات جفر + علوم غریبه\n\n🔮 ۱۷ قابلیت مختلف"
                 )
                 return jsonify({'status': 'ok'}), 200
             
@@ -2277,7 +2130,6 @@ def webhook():
                 TelegramBot.send_message(chat_id, response)
                 return jsonify({'status': 'ok'}), 200
             
-            # پردازش مراحل
             session = db.get_session(chat_id)
             if session:
                 step = session.get('step')
@@ -2303,7 +2155,6 @@ def webhook():
                     TelegramBot.send_message(chat_id, result)
                     return jsonify({'status': 'ok'}), 200
                 
-                # مراحل جفر
                 elif step in ['name', 'mother', 'day', 'month', 'year', 'question']:
                     response, is_complete = UserManager.process_step(chat_id, text)
                     if response:
@@ -2320,10 +2171,9 @@ def webhook():
                                 TelegramBot.send_message(chat_id, response)
                     return jsonify({'status': 'ok'}), 200
             
-            # دستور نامشخص
             TelegramBot.send_message(
                 chat_id,
-                "🤔 دستور نامشخص. لطفاً از دکمه‌های پایین استفاده کنید.",
+                "🤔 دستور نامشخص.",
                 reply_markup=BotKeyboard.get_main_keyboard()
             )
             return jsonify({'status': 'ok'}), 200
@@ -2334,27 +2184,26 @@ def webhook():
         logger.error(f"خطا: {e}")
         return jsonify({'error': str(e)}), 500
 
+
 # ==================== صفحه اصلی ====================
 @app.route('/')
 def home():
     return """
-    <h1>🔮 ربات  علوم غریبه</h1>
+    <h1>🔮 ربات علوم غریبه</h1>
     <p>ربات آنلاین و فعال است ✅</p>
     <p>🔮 جفر ۳۶ و ۳۶۰ | ☕ فال قهوه | ✋ کف‌بینی | 📖 فال حافظ | 📖 فال قرآن | 🃏 فال تاروت | 🤲 استخاره | 🔐 طلسمات</p>
     <p>نسخه ۵.۰.۰ کامل</p>
     """
+
 
 # ==================== منوی پایین ====================
 def set_bot_commands():
     try:
         commands = [
             {"command": "start", "description": "🔄 شروع مجدد"},
-            
-          
-            {"command": "history", "description": "📊 تاریخچه سوالات"},
+            {"command": "history", "description": "📊 تاریخچه"},
             {"command": "stats", "description": "📈 آمار من"},
             {"command": "help", "description": "📖 راهنما"},
-           
         ]
         
         url = f"https://api.telegram.org/bot{TOKEN}/setMyCommands"
@@ -2371,6 +2220,7 @@ def set_bot_commands():
         logger.error(f"❌ خطا در ثبت منو: {e}")
         return False
 
+
 # ==================== اجرا ====================
 if __name__ == '__main__':
     print("🔮 ثبت منوی پایین تلگرام...")
@@ -2379,41 +2229,3 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 ربات نسخه ۵.۰.۰ کامل روی پورت {port} اجرا شد")
     app.run(host='0.0.0.0', port=port, debug=False)
-# ==================== منوی کامل ====================
-class BotKeyboard:
-    @staticmethod
-    def get_main_keyboard():
-        keyboard = [
-            [' جفرگیری'],
-            ['☕ فال قهوه', '✋ کف‌بینی'],
-            ['📖 فال حافظ', '📖 فال قرآن'],
-            ['🃏 فال تاروت', '🤲 استخاره'],
-            [' طلسمات ویژه' ],
-          
-            ['❌ لغو عملیات'],
-        ]
-        return {
-            'keyboard': keyboard,
-            'resize_keyboard': True,
-            'one_time_keyboard': False,
-            'persistent': True
-        }
-    
-    @staticmethod
-    def get_cancel_keyboard():
-        keyboard = [
-            ['❌ لغو عملیات']
-        ]
-        return {
-            'keyboard': keyboard,
-            'resize_keyboard': True,
-            'one_time_keyboard': False,
-            'persistent': True
-        }
-@app.route('/')
-def home():
-    return """
-    <h1>🔮 ربات جفر هوشمند</h1>
-    <p>ربات فعال است ✅</p>
-    <p>برای استفاده به تلگرام بروید</p>
-    """
