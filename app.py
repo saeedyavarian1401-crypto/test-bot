@@ -37,33 +37,31 @@ TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8624726972:AAHa89X4pWrLaD7c-GI3OUj
 JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
-# ==================== سیستم رمز  برای طلسمات ====================
-# ==================== سیستم رمز طلسم (امن) ====================
+
+# ==================== سیستم رمز طلسم (کاملاً امن) ====================
 import os
 import hashlib
-import secrets
 from functools import wraps
 
-# رمز از متغیر محیطی خوانده می‌شود (هیچ جا تو کد نیست)
-# اگر متغیر محیطی نبود، مقدار پیش‌فرض از hash استفاده می‌کند
-TALISMAN_SALT = b'occult_v5_talisman_salt_2024'
+# رمز از محیط خوانده میشه - هیچ جا توی کد نیست
+TALISMAN_SALT = b'occult_talisman_salt_2024'
 
 def _get_talisman_hash() -> str:
-    """دریافت هش رمز از متغیر محیطی یا تولید هش پیش‌فرض"""
-    password = os.environ.get('TALISMAN_PASSWORD', '13640624')
+    """دریافت هش رمز از متغیر محیطی"""
+    # رمز از متغیر محیطی خونده میشه
+    password = os.environ.get('TALISMAN_PASSWORD', '')
+    if not password:
+        raise ValueError("❌ رمز طلسم در متغیرهای محیطی تنظیم نشده است!")
     return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
 
 def _hash_input(password: str) -> str:
-    """هش کردن ورودی کاربر برای مقایسه"""
+    """هش کردن ورودی کاربر"""
     return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
 
 
 class TalismanProtector:
-    """محافظت از طلسمات ویژه - رمز هیچ جا ذخیره نمی‌شود"""
-    
     _instance = None
     _unlocked = False
-    _unlock_time = None
     
     def __new__(cls):
         if cls._instance is None:
@@ -75,11 +73,9 @@ class TalismanProtector:
         if self._initialized:
             return
         self._initialized = True
-        # هش رمز در حافظه نگه‌داری می‌شود، نه خود رمز
         self._password_hash = _get_talisman_hash()
     
     def unlock(self, password: str) -> bool:
-        """باز کردن قفل - رمز با هش مقایسه می‌شود"""
         if _hash_input(password) == self._password_hash:
             self._unlocked = True
             return True
@@ -93,7 +89,6 @@ class TalismanProtector:
     
     @staticmethod
     def require_unlock(func):
-        """دکوراتور برای توابع نیازمند قفل"""
         @wraps(func)
         def wrapper(*args, **kwargs):
             if not talisman_protector.is_unlocked():
@@ -102,7 +97,6 @@ class TalismanProtector:
         return wrapper
 
 
-# نمونه‌سازی
 talisman_protector = TalismanProtector()
 
 
@@ -121,14 +115,15 @@ PROTECTED_TALISMANS = [
 
 
 def get_talismans(with_protected: bool = False, password: str = None):
-    """دریافت طلسمات - برای طلسمات ویژه رمز را وارد کنید"""
     talismans = PUBLIC_TALISMANS.copy()
     
     if with_protected:
-        if password and talisman_protector.unlock(password):
+        if not password:
+            raise ValueError("❌ برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
+        if talisman_protector.unlock(password):
             talismans.extend(PROTECTED_TALISMANS)
-        elif not talisman_protector.is_unlocked():
-            raise PermissionError("🔒 برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
+        else:
+            raise PermissionError("❌ رمز اشتباه است!")
     
     return talismans
 # ==================== JWT احراز هویت ====================
