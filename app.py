@@ -3,36 +3,24 @@ from flask import Flask, request, jsonify
 import requests
 from datetime import datetime
 import json
-import re
 import logging
 import os
 import sqlite3
 from contextlib import contextmanager
 import time
-from functools import wraps
 from typing import Dict, Optional, Tuple, Any
 from dataclasses import dataclass, asdict
-from enum import Enum
 
 # ==================== تنظیمات اولیه ====================
 app = Flask(__name__)
 
-# لاگ‌گیری
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler('bot.log'),
-        logging.StreamHandler()
-    ]
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
 
-# توکن از محیط متغیر
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8624726972:AAHa89X4pWrLaD7c-GI3OUjmx7FuSL-5pQQ')
-if not TOKEN:
-    logger.error("توکن تلگرام تنظیم نشده است!")
-    exit(1)
 
 # ==================== دیتابیس ====================
 class Database:
@@ -89,27 +77,20 @@ class Database:
     
     def get_user(self, chat_id: str) -> Optional[Dict]:
         with self.get_connection() as conn:
-            result = conn.execute(
-                'SELECT * FROM users WHERE chat_id = ?', (chat_id,)
-            ).fetchone()
+            result = conn.execute('SELECT * FROM users WHERE chat_id = ?', (chat_id,)).fetchone()
             return dict(result) if result else None
     
     def create_user(self, chat_id: str, username: str = '', first_name: str = '', last_name: str = ''):
         with self.get_connection() as conn:
             conn.execute(
-                '''INSERT OR REPLACE INTO users 
-                   (chat_id, username, first_name, last_name) 
-                   VALUES (?, ?, ?, ?)''',
+                'INSERT OR REPLACE INTO users (chat_id, username, first_name, last_name) VALUES (?, ?, ?, ?)',
                 (chat_id, username, first_name, last_name)
             )
             conn.commit()
     
     def increment_queries(self, chat_id: str):
         with self.get_connection() as conn:
-            conn.execute(
-                'UPDATE users SET total_queries = total_queries + 1 WHERE chat_id = ?',
-                (chat_id,)
-            )
+            conn.execute('UPDATE users SET total_queries = total_queries + 1 WHERE chat_id = ?', (chat_id,))
             conn.commit()
     
     def save_session(self, chat_id: str, step: str, **kwargs):
@@ -132,9 +113,7 @@ class Database:
     
     def get_session(self, chat_id: str) -> Optional[Dict]:
         with self.get_connection() as conn:
-            result = conn.execute(
-                'SELECT * FROM user_sessions WHERE chat_id = ?', (chat_id,)
-            ).fetchone()
+            result = conn.execute('SELECT * FROM user_sessions WHERE chat_id = ?', (chat_id,)).fetchone()
             return dict(result) if result else None
     
     def delete_session(self, chat_id: str):
@@ -145,9 +124,7 @@ class Database:
     def save_query_history(self, chat_id: str, question: str, j36: Dict, j360: Dict):
         with self.get_connection() as conn:
             conn.execute(
-                '''INSERT INTO query_history 
-                   (chat_id, question, jafr_36_result, jafr_360_result) 
-                   VALUES (?, ?, ?, ?)''',
+                '''INSERT INTO query_history (chat_id, question, jafr_36_result, jafr_360_result) VALUES (?, ?, ?, ?)''',
                 (chat_id, question, json.dumps(j36), json.dumps(j360))
             )
             conn.commit()
@@ -183,13 +160,6 @@ def abjad_sum(text: str) -> int:
         if ch in ABJAD:
             total += ABJAD[ch]
     return total
-
-def reduce_number(n: int) -> int:
-    if n == 0:
-        return 0
-    while n > 9:
-        n = sum(int(d) for d in str(n))
-    return n
 
 # ==================== تحلیلگر سوال ====================
 class QuestionAnalyzer:
@@ -413,541 +383,10 @@ class SmartJafrCalculator:
                     remainder=remainder
                 )
 
-# ==================== تلگرام ====================
-class TelegramBot:
-    BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
-    
-    @staticmethod
-    def send_message(chat_id: str, text: str, parse_mode: str = 'Markdown', reply_markup: Optional[Dict] = None) -> bool:
-        try:
-            payload = {'chat_id': chat_id, 'text': text, 'parse_mode': parse_mode}
-            if reply_markup:
-                payload['reply_markup'] = json.dumps(reply_markup)
-            
-            response = requests.post(f"{TelegramBot.BASE_URL}/sendMessage", json=payload, timeout=10)
-            return response.status_code == 200
-        except Exception as e:
-            logger.error(f"خطا در ارسال پیام: {e}")
-            return False
-
-# ==================== منوی ربات ====================
-class BotMenu:
-    @staticmethod
-    def get_main_menu() -> Dict:
-        keyboard = [
-            [
-                {'text': '🔮 جفرگیری', 'callback_data': 'jafr_start'},
-                {'text': '📊 تاریخچه', 'callback_data': 'history'}
-            ],
-            [
-                {'text': '📖 راهنما', 'callback_data': 'help'},
-                {'text': '📈 آمار', 'callback_data': 'stats'}
-            ],
-            [
-                {'text': 'ℹ️ درباره', 'callback_data': 'about'},
-                {'text': '❌ لغو', 'callback_data': 'cancel'}
-            ]
-        ]
-        return {'inline_keyboard': keyboard}
-    
-    @staticmethod
-    def get_jafr_menu() -> Dict:
-        keyboard = [
-            [
-                {'text': '📝 جفر ۳۶', 'callback_data': 'jafr_36'},
-                {'text': '📝 جفر ۳۶۰', 'callback_data': 'jafr_360'}
-            ],
-            [
-                {'text': '🔮 هر دو جفر', 'callback_data': 'jafr_both'}
-            ],
-            [
-                {'text': '🔙 بازگشت', 'callback_data': 'back_main'}
-            ]
-        ]
-        return {'inline_keyboard': keyboard}
-
-# ==================== مدیریت کاربر ====================
-class UserManager:
-    @staticmethod
-    def register_user(update: Dict):
-        message = update.get('message', {})
-        chat = message.get('chat', {})
-        chat_id = str(chat.get('id'))
-        user = message.get('from', {})
-        
-        db.create_user(
-            chat_id=chat_id,
-            username=user.get('username', ''),
-            first_name=user.get('first_name', ''),
-            last_name=user.get('last_name', '')
-        )
-        return chat_id
-    
-    @staticmethod
-    def get_stats(chat_id: str) -> str:
-        user = db.get_user(chat_id)
-        if not user:
-            return "❌ کاربری یافت نشد."
-        
-        return f"""
-📊 **آمار شما**
-
-👤 کاربر: {user.get('first_name', 'ناشناس')}
-📅 تاریخ ثبت: {user.get('registered_at', 'نامشخص')}
-🔢 تعداد سوالات: {user.get('total_queries', 0)}
-"""
-    
-    @staticmethod
-    def get_history(chat_id: str) -> str:
-        with db.get_connection() as conn:
-            results = conn.execute(
-                '''SELECT question, created_at FROM query_history 
-                   WHERE chat_id = ? ORDER BY created_at DESC LIMIT 10''',
-                (chat_id,)
-            ).fetchall()
-        
-        if not results:
-            return "📭 هنوز سوالی نپرسیده‌اید."
-        
-        history = "📜 **تاریخچه سوالات**\n\n"
-        for i, row in enumerate(results, 1):
-            history += f"{i}. {row['question']}\n🕐 {row['created_at'][:16]}\n\n"
-        return history
-    
-    @staticmethod
-    def get_help_message() -> str:
-        return """
-📖 **راهنمای ربات جفر**
-
-🔮 **چگونه کار می‌کند؟**
-با استفاده از علم جفر و محاسبات آبجدی
-
-📝 **مراحل استفاده:**
-1. روی دکمه جفرگیری کلیک کنید
-2. اطلاعات خود را وارد کنید
-3. سوال خود را بپرسید
-
-⚠️ **توجه:** صرفاً جنبه سرگرمی دارد.
-"""
-    
-    @staticmethod
-    def cancel_session(chat_id: str) -> str:
-        session = db.get_session(chat_id)
-        if session:
-            db.delete_session(chat_id)
-            return "❌ عملیات لغو شد."
-        return "ℹ️ هیچ عملیات فعالی وجود ندارد."
-    
-    @staticmethod
-    def calculate_jafr(chat_id: str, question: str) -> str:
-        session = db.get_session(chat_id)
-        if not session:
-            return "❌ جلسه منقضی شده."
-        
-        name = session['name']
-        mother = session['mother']
-        day = session['day']
-        month = session['month']
-        year = session['year']
-        jafr_type = session.get('jafr_type', 'both')
-        
-        # محاسبه جفر
-        j36 = SmartJafrCalculator.calculate_36(question, name, mother, day, month, year)
-        j360 = SmartJafrCalculator.calculate_360(question, name, mother, day, month, year)
-        
-        # ذخیره تاریخچه
-        db.increment_queries(chat_id)
-        db.save_query_history(chat_id, question, j36.to_dict(), j360.to_dict())
-        db.delete_session(chat_id)
-        
-        # ساخت پاسخ
-        response = f"""
-🔮 **نتیجه جفر برای {name}**
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-"""
-        if jafr_type in ['36', 'both']:
-            response += f"""
-📖 **جفر ۳۶**
-{j36.answer}
-⭐ امتیاز: {j36.score}/100
-💡 توصیه: {j36.advice}
-"""
-        
-        if jafr_type in ['360', 'both']:
-            response += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📖 **جفر ۳۶۰**
-{j360.answer}
-⭐ امتیاز: {j360.score}/100
-📊 درجه: {j360.degree if j360.degree else '---'}
-💡 توصیه: {j360.advice}
-"""
-        
-        response += f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
-"""
-        return response
-    
-    @staticmethod
-    def process_step(chat_id: str, text: str) -> Tuple[Optional[str], bool]:
-        session = db.get_session(chat_id)
-        if not session:
-            return None, False
-        
-        step = session['step']
-        is_complete = False
-        
-        try:
-            if step == 'name':
-                if len(text) < 2:
-                    return "❌ نام باید حداقل ۲ حرف باشد.", False
-                db.save_session(chat_id, 'mother', name=text, jafr_type=session.get('jafr_type', 'both'))
-                return "👩 **نام مادر خود را وارد کنید:**", False
-            
-            elif step == 'mother':
-                if len(text) < 2:
-                    return "❌ نام مادر باید حداقل ۲ حرف باشد.", False
-                db.save_session(chat_id, 'day', name=session['name'], mother=text, jafr_type=session.get('jafr_type', 'both'))
-                return "📅 **روز تولد (۱ تا ۳۱):**", False
-            
-            elif step == 'day':
-                try:
-                    day = int(text)
-                    if not 1 <= day <= 31:
-                        return "❌ روز باید بین ۱ تا ۳۱ باشد.", False
-                    db.save_session(chat_id, 'month', name=session['name'], mother=session['mother'], 
-                                  day=day, jafr_type=session.get('jafr_type', 'both'))
-                    return "📅 **ماه تولد (۱ تا ۱۲):**", False
-                except ValueError:
-                    return "❌ لطفاً یک عدد معتبر وارد کنید:", False
-            
-            elif step == 'month':
-                try:
-                    month = int(text)
-                    if not 1 <= month <= 12:
-                        return "❌ ماه باید بین ۱ تا ۱۲ باشد.", False
-                    db.save_session(chat_id, 'year', name=session['name'], mother=session['mother'],
-                                  day=session['day'], month=month, jafr_type=session.get('jafr_type', 'both'))
-                    return "📅 **سال تولد (۱۳۰۰ تا ۱۵۰۰):**", False
-                except ValueError:
-                    return "❌ لطفاً یک عدد معتبر وارد کنید:", False
-            
-            elif step == 'year':
-                try:
-                    year = int(text)
-                    if not 1300 <= year <= 1500:
-                        return "❌ سال باید بین ۱۳۰۰ تا ۱۵۰۰ باشد.", False
-                    db.save_session(chat_id, 'question', name=session['name'], mother=session['mother'],
-                                  day=session['day'], month=session['month'], year=year, 
-                                  jafr_type=session.get('jafr_type', 'both'))
-                    return "❓ **سوال خود را بپرسید:**", False
-                except ValueError:
-                    return "❌ لطفاً یک عدد معتبر وارد کنید:", False
-            
-            elif step == 'question':
-                return UserManager.calculate_jafr(chat_id, text), True
-            
-            return None, False
-            
-        except Exception as e:
-            logger.error(f"خطا: {e}")
-            return "⚠️ خطایی رخ داد. دوباره تلاش کنید.", False
-
-# ==================== Callback Handler ====================
-class CallbackHandler:
-    @staticmethod
-    def handle_callback(chat_id: str, callback_data: str):
-        if callback_data == 'back_main':
-            TelegramBot.send_message(
-                chat_id,
-                "🔮 **منوی اصلی**",
-                reply_markup=BotMenu.get_main_menu()
-            )
-            return
-        
-        elif callback_data == 'jafr_start':
-            TelegramBot.send_message(
-                chat_id,
-                "🔮 **انتخاب نوع جفر**",
-                reply_markup=BotMenu.get_jafr_menu()
-            )
-            return
-        
-        elif callback_data == 'jafr_36':
-            db.save_session(chat_id, 'name', jafr_type='36')
-            TelegramBot.send_message(chat_id, "👤 **نام خود را وارد کنید:**")
-            return
-        
-        elif callback_data == 'jafr_360':
-            db.save_session(chat_id, 'name', jafr_type='360')
-            TelegramBot.send_message(chat_id, "👤 **نام خود را وارد کنید:**")
-            return
-        
-        elif callback_data == 'jafr_both':
-            db.save_session(chat_id, 'name', jafr_type='both')
-            TelegramBot.send_message(chat_id, "👤 **نام خود را وارد کنید:**")
-            return
-        
-        elif callback_data == 'history':
-            TelegramBot.send_message(chat_id, UserManager.get_history(chat_id))
-            return
-        
-        elif callback_data == 'stats':
-            TelegramBot.send_message(chat_id, UserManager.get_stats(chat_id))
-            return
-        
-        elif callback_data == 'help':
-            TelegramBot.send_message(
-                chat_id,
-                UserManager.get_help_message(),
-                reply_markup=BotMenu.get_main_menu()
-            )
-            return
-        
-        elif callback_data == 'about':
-            TelegramBot.send_message(
-                chat_id,
-                "ℹ️ **درباره ربات**\n\nنسخه ۲.۰.۰\nربات جفر هوشمند",
-                reply_markup=BotMenu.get_main_menu()
-            )
-            return
-        
-        elif callback_data == 'cancel':
-            TelegramBot.send_message(
-                chat_id,
-                UserManager.cancel_session(chat_id),
-                reply_markup=BotMenu.get_main_menu()
-            )
-            return
-
-# ==================== وب‌هوک ====================
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    try:
-        update = request.get_json()
-        if not update:
-            return jsonify({'status': 'ok'}), 200
-        
-        # پردازش پیام
-        if 'message' in update:
-            message = update['message']
-            chat_id = str(message['chat']['id'])
-            text = message.get('text', '').strip()
-            
-            UserManager.register_user(update)
-            
-            # دستورات
-            if text == '/start' or text == '/menu':
-                TelegramBot.send_message(
-                    chat_id,
-                    "🔮 **ربات جفر**\n\nلطفاً یکی از گزینه‌ها را انتخاب کنید:",
-                    reply_markup=BotMenu.get_main_menu()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '/ask':
-                db.save_session(chat_id, 'name', jafr_type='both')
-                TelegramBot.send_message(chat_id, "👤 **نام خود را وارد کنید:**")
-                return jsonify({'status': 'ok'}), 200
-            
-            # پردازش مراحل
-            session = db.get_session(chat_id)
-            if session:
-                response, is_complete = UserManager.process_step(chat_id, text)
-                if response:
-                    if is_complete:
-                        TelegramBot.send_message(
-                            chat_id,
-                            response,
-                            reply_markup=BotMenu.get_main_menu()
-                        )
-                    else:
-                        TelegramBot.send_message(chat_id, response)
-                return jsonify({'status': 'ok'}), 200
-            
-            # دستور نامشخص
-            TelegramBot.send_message(
-                chat_id,
-                "🤔 دستور نامشخص. از منو استفاده کنید.",
-                reply_markup=BotMenu.get_main_menu()
-            )
-        
-        # پردازش کلیک‌ها
-        elif 'callback_query' in update:
-            callback_query = update['callback_query']
-            chat_id = str(callback_query['message']['chat']['id'])
-            callback_data = callback_query['callback_data']
-            
-            CallbackHandler.handle_callback(chat_id, callback_data)
-            
-            # تایید دریافت
-            try:
-                requests.post(
-                    f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
-                    json={'callback_query_id': callback_query['id']}
-                )
-            except:
-                pass
-        
-        return jsonify({'status': 'ok'}), 200
-        
-    except Exception as e:
-        logger.error(f"خطا: {e}")
-        return jsonify({'error': str(e)}), 500
-
-# ==================== صفحه اصلی ====================
-@app.route('/')
-def home():
-    return jsonify({
-        'status': 'online',
-        'bot': 'Jafr Bot',
-        'version': '2.0.0'
-    })
-
-# ==================== اجرا ====================
-if __name__ == '__main__':
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
-# ==================== تنظیم وب‌هوک ====================
-def set_webhook():
-    """تنظیم وب‌هوک برای ربات"""
-    webhook_url = os.environ.get('WEBHOOK_URL')
-    
-    if not webhook_url:
-        # برای اجرای محلی
-        webhook_url = "https://your-domain.com/webhook"
-        logger.warning("WEBHOOK_URL تنظیم نشده! از آدرس پیش‌فرض استفاده می‌شود.")
-        return False
-    
-    try:
-        # حذف وب‌هوک قبلی (اختیاری)
-        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
-        
-        # تنظیم وب‌هوک جدید
-        response = requests.post(
-            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
-            json={'url': f"{webhook_url}/webhook"}
-        )
-        
-        if response.status_code == 200:
-            data = response.json()
-            if data.get('ok'):
-                logger.info(f"✅ وب‌هوک با موفقیت تنظیم شد: {webhook_url}/webhook")
-                return True
-            else:
-                logger.error(f"❌ خطا در تنظیم وب‌هوک: {data}")
-                return False
-        else:
-            logger.error(f"❌ خطا در تنظیم وب‌هوک: {response.status_code}")
-            return False
-            
-    except Exception as e:
-        logger.error(f"❌ خطا در تنظیم وب‌هوک: {e}")
-        return False
-
-# ==================== اجرا ====================
-if __name__ == '__main__':
-    # تنظیم وب‌هوک در شروع
-    if os.environ.get('RENDER'):  # اگر در Render اجرا می‌شود
-        set_webhook()
-    
-    port = int(os.environ.get('PORT', 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
 # ==================== کیبورد دائمی ====================
 class BotKeyboard:
-    """کیبورد دائمی در پایین صفحه"""
-    
-    @staticmethod
-    def get_main_keyboard() -> Dict:
-        """کیبورد اصلی - همیشه در پایین صفحه"""
-        keyboard = [
-            ['🔮 جفرگیری', '📊 تاریخچه'],
-            ['📖 راهنما', '📈 آمار من'],
-            ['ℹ️ درباره', '❌ لغو عملیات']
-        ]
-        return {
-            'keyboard': keyboard,
-            'resize_keyboard': True,      # اندازه کیبورد با صفحه هماهنگ شود
-            'one_time_keyboard': False,   # بعد از استفاده پنهان نشود
-            'persistent': True            # همیشه نشان داده شود
-        }
-    
-    @staticmethod
-    def get_cancel_keyboard() -> Dict:
-        """کیبورد با دکمه لغو"""
-        keyboard = [
-            ['❌ لغو عملیات']
-        ]
-        return {
-            'keyboard': keyboard,
-            'resize_keyboard': True,
-            'one_time_keyboard': False,
-            'persistent': True
-        }
-        # در کلاس TelegramBot
-@staticmethod
-def send_message(chat_id: str, text: str, parse_mode: str = 'Markdown', 
-                 reply_markup: Optional[Dict] = None) -> bool:
-    """ارسال پیام با کیبورد دائمی"""
-    try:
-        payload = {
-            'chat_id': chat_id,
-            'text': text,
-            'parse_mode': parse_mode
-        }
-        
-        # اگر کیبورد مشخص نشده، از کیبورد اصلی استفاده کن
-        if reply_markup is None:
-            reply_markup = BotKeyboard.get_main_keyboard()
-        
-        payload['reply_markup'] = json.dumps(reply_markup)
-        
-        response = requests.post(
-            f"{TelegramBot.BASE_URL}/sendMessage",
-            json=payload,
-            timeout=10
-        )
-        return response.status_code == 200
-    except Exception as e:
-        logger.error(f"خطا در ارسال پیام: {e}")
-        return False
-        # در وب‌هوک
-if text == '/start' or text == '/menu':
-    TelegramBot.send_message(
-        chat_id,
-        "🔮 **ربات جفر**\n\nسلام! 👋\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-        reply_markup=BotKeyboard.get_main_keyboard()  # کیبورد دائمی
-    )
-    return jsonify({'status': 'ok'}), 200
-    # وقتی کاربر مراحل جفر را طی می‌کند
-if step == 'name':
-    TelegramBot.send_message(
-        chat_id,
-        "👤 **نام خود را وارد کنید:**",
-        reply_markup=BotKeyboard.get_cancel_keyboard()  # فقط دکمه لغو
-    )
-    # اگر می‌خواهید کیبورد موقتاً پنهان شود
-TelegramBot.send_message(
-    chat_id,
-    "✅ عملیات با موفقیت انجام شد.",
-    reply_markup={'remove_keyboard': True}  # حذف کیبورد
-)
-
-# بعد دوباره نمایش دهید
-TelegramBot.send_message(
-    chat_id,
-    "🔮 منوی اصلی",
-    reply_markup=BotKeyboard.get_main_keyboard()  # بازگشت کیبورد
-)
-# ==================== کیبورد دائمی ====================
-class BotKeyboard:
-    """کیبورد دائمی در پایین صفحه"""
-    
     @staticmethod
     def get_main_keyboard():
-        """کیبورد اصلی - همیشه در پایین صفحه"""
         keyboard = [
             ['🔮 جفرگیری', '📊 تاریخچه'],
             ['📖 راهنما', '📈 آمار من'],
@@ -962,7 +401,6 @@ class BotKeyboard:
     
     @staticmethod
     def get_cancel_keyboard():
-        """کیبورد با دکمه لغو"""
         keyboard = [
             ['❌ لغو عملیات']
         ]
@@ -972,190 +410,27 @@ class BotKeyboard:
             'one_time_keyboard': False,
             'persistent': True
         }
-        # در قسمت webhook
-if text == '/start':
-    TelegramBot.send_message(
-        chat_id,
-        "🔮 **ربات جفر**\n\nسلام! لطفاً یکی از گزینه‌ها را انتخاب کنید:",
-        reply_markup=BotKeyboard.get_main_keyboard()
-    )
-# ==================== وب‌هوک ====================
-@app.route('/webhook', methods=['POST'])
-def webhook():
-    try:
-        update = request.get_json()
-        if not update:
-            return jsonify({'status': 'ok'}), 200
-        
-        # پردازش پیام
-        if 'message' in update:
-            message = update['message']
-            chat_id = str(message['chat']['id'])
-            text = message.get('text', '').strip()
+
+# ==================== تلگرام ====================
+class TelegramBot:
+    BASE_URL = f"https://api.telegram.org/bot{TOKEN}"
+    
+    @staticmethod
+    def send_message(chat_id: str, text: str, parse_mode: str = 'Markdown', reply_markup: Optional[Dict] = None) -> bool:
+        try:
+            payload = {'chat_id': chat_id, 'text': text, 'parse_mode': parse_mode}
+            if reply_markup is None:
+                reply_markup = BotKeyboard.get_main_keyboard()
+            payload['reply_markup'] = json.dumps(reply_markup)
             
-            # ثبت کاربر
-            UserManager.register_user(update)
-            
-            # ===== دستورات =====
-            if text == '/start' or text == '/menu':
-                TelegramBot.send_message(
-                    chat_id,
-                    "🔮 **ربات جفر ۳۶ و ۳۶۰**\n\nسلام! 👋\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '/ask':
-                db.save_session(chat_id, 'name', jafr_type='both')
-                TelegramBot.send_message(
-                    chat_id,
-                    "👤 **نام خود را وارد کنید:**",
-                    reply_markup=BotKeyboard.get_cancel_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            # ===== پردازش دکمه‌های کیبورد =====
-            elif text == '🔮 جفرگیری':
-                db.save_session(chat_id, 'name', jafr_type='both')
-                TelegramBot.send_message(
-                    chat_id,
-                    "👤 **نام خود را وارد کنید:**",
-                    reply_markup=BotKeyboard.get_cancel_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '📊 تاریخچه':
-                response = UserManager.get_history(chat_id)
-                TelegramBot.send_message(
-                    chat_id,
-                    response,
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '📖 راهنما':
-                TelegramBot.send_message(
-                    chat_id,
-                    UserManager.get_help_message(),
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '📈 آمار من':
-                response = UserManager.get_stats(chat_id)
-                TelegramBot.send_message(
-                    chat_id,
-                    response,
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == 'ℹ️ درباره':
-                TelegramBot.send_message(
-                    chat_id,
-                    "ℹ️ **درباره ربات**\n\nنسخه ۲.۰.۰\nربات جفر هوشمند",
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            elif text == '❌ لغو عملیات':
-                response = UserManager.cancel_session(chat_id)
-                TelegramBot.send_message(
-                    chat_id,
-                    response,
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-                return jsonify({'status': 'ok'}), 200
-            
-            # ===== پردازش مراحل =====
-            session = db.get_session(chat_id)
-            if session:
-                response, is_complete = UserManager.process_step(chat_id, text)
-                if response:
-                    if is_complete:
-                        TelegramBot.send_message(
-                            chat_id,
-                            response,
-                            reply_markup=BotKeyboard.get_main_keyboard()
-                        )
-                    else:
-                        # اگر مرحله name, mother, day, month, year است
-                        if session.get('step') in ['name', 'mother', 'day', 'month', 'year']:
-                            TelegramBot.send_message(
-                                chat_id,
-                                response,
-                                reply_markup=BotKeyboard.get_cancel_keyboard()
-                            )
-                        else:
-                            TelegramBot.send_message(chat_id, response)
-                return jsonify({'status': 'ok'}), 200
-            
-            # ===== دستور نامشخص =====
-            TelegramBot.send_message(
-                chat_id,
-                "🤔 دستور نامشخص. لطفاً از دکمه‌های پایین استفاده کنید.",
-                reply_markup=BotKeyboard.get_main_keyboard()
-            )
-            return jsonify({'status': 'ok'}), 200
-        
-        # ===== پردازش کلیک‌های اینلاین =====
-        elif 'callback_query' in update:
-            callback_query = update['callback_query']
-            chat_id = str(callback_query['message']['chat']['id'])
-            callback_data = callback_query['callback_data']
-            
-            # پردازش کلیک
-            if callback_data == 'back_main':
-                TelegramBot.send_message(
-                    chat_id,
-                    "🔮 **منوی اصلی**",
-                    reply_markup=BotKeyboard.get_main_keyboard()
-                )
-            elif callback_data == 'jafr_start':
-                TelegramBot.send_message(
-                    chat_id,
-                    "🔮 **انتخاب نوع جفر**",
-                    reply_markup=BotMenu.get_jafr_menu()
-                )
-            elif callback_data == 'jafr_36':
-                db.save_session(chat_id, 'name', jafr_type='36')
-                TelegramBot.send_message(
-                    chat_id,
-                    "👤 **نام خود را وارد کنید:**",
-                    reply_markup=BotKeyboard.get_cancel_keyboard()
-                )
-            elif callback_data == 'jafr_360':
-                db.save_session(chat_id, 'name', jafr_type='360')
-                TelegramBot.send_message(
-                    chat_id,
-                    "👤 **نام خود را وارد کنید:**",
-                    reply_markup=BotKeyboard.get_cancel_keyboard()
-                )
-            elif callback_data == 'jafr_both':
-                db.save_session(chat_id, 'name', jafr_type='both')
-                TelegramBot.send_message(
-                    chat_id,
-                    "👤 **نام خود را وارد کنید:**",
-                    reply_markup=BotKeyboard.get_cancel_keyboard()
-                )
-            
-            # تایید دریافت کلیک
-            try:
-                requests.post(
-                    f"https://api.telegram.org/bot{TOKEN}/answerCallbackQuery",
-                    json={'callback_query_id': callback_query['id']}
-                )
-            except:
-                pass
-            
-            return jsonify({'status': 'ok'}), 200
-        
-        return jsonify({'status': 'ok'}), 200
-        
-    except Exception as e:
-        logger.error(f"خطا در وب‌هوک: {e}")
-        return jsonify({'error': str(e)}), 500
-        class UserManager:
+            response = requests.post(f"{TelegramBot.BASE_URL}/sendMessage", json=payload, timeout=10)
+            return response.status_code == 200
+        except Exception as e:
+            logger.error(f"خطا در ارسال پیام: {e}")
+            return False
+
+# ==================== مدیریت کاربر ====================
+class UserManager:
     @staticmethod
     def register_user(update: Dict):
         message = update.get('message', {})
@@ -1303,16 +578,13 @@ def webhook():
         year = session['year']
         jafr_type = session.get('jafr_type', 'both')
         
-        # محاسبه جفر
         j36 = SmartJafrCalculator.calculate_36(question, name, mother, day, month, year)
         j360 = SmartJafrCalculator.calculate_360(question, name, mother, day, month, year)
         
-        # ذخیره تاریخچه
         db.increment_queries(chat_id)
         db.save_query_history(chat_id, question, j36.to_dict(), j360.to_dict())
         db.delete_session(chat_id)
         
-        # ساخت پاسخ
         response = f"""
 🔮 **نتیجه جفر برای {name}**
 
@@ -1341,3 +613,119 @@ def webhook():
 📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
 """
         return response
+
+# ==================== وب‌هوک ====================
+@app.route('/webhook', methods=['POST'])
+def webhook():
+    try:
+        update = request.get_json()
+        if not update:
+            return jsonify({'status': 'ok'}), 200
+        
+        if 'message' in update:
+            message = update['message']
+            chat_id = str(message['chat']['id'])
+            text = message.get('text', '').strip()
+            
+            UserManager.register_user(update)
+            
+            # دستورات
+            if text == '/start' or text == '/menu':
+                TelegramBot.send_message(
+                    chat_id,
+                    "🔮 **ربات جفر ۳۶ و ۳۶۰**\n\nسلام! 👋\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+                    reply_markup=BotKeyboard.get_main_keyboard()
+                )
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == '/ask':
+                db.save_session(chat_id, 'name', jafr_type='both')
+                TelegramBot.send_message(
+                    chat_id,
+                    "👤 **نام خود را وارد کنید:**",
+                    reply_markup=BotKeyboard.get_cancel_keyboard()
+                )
+                return jsonify({'status': 'ok'}), 200
+            
+            # دکمه‌های کیبورد
+            elif text == '🔮 جفرگیری':
+                db.save_session(chat_id, 'name', jafr_type='both')
+                TelegramBot.send_message(
+                    chat_id,
+                    "👤 **نام خود را وارد کنید:**",
+                    reply_markup=BotKeyboard.get_cancel_keyboard()
+                )
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == '📊 تاریخچه':
+                response = UserManager.get_history(chat_id)
+                TelegramBot.send_message(chat_id, response)
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == '📖 راهنما':
+                TelegramBot.send_message(chat_id, UserManager.get_help_message())
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == '📈 آمار من':
+                response = UserManager.get_stats(chat_id)
+                TelegramBot.send_message(chat_id, response)
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == 'ℹ️ درباره':
+                TelegramBot.send_message(
+                    chat_id,
+                    "ℹ️ **درباره ربات**\n\nنسخه ۲.۰.۰\nربات جفر هوشمند\nتوسعه‌دهنده: تیم جفر"
+                )
+                return jsonify({'status': 'ok'}), 200
+            
+            elif text == '❌ لغو عملیات':
+                response = UserManager.cancel_session(chat_id)
+                TelegramBot.send_message(chat_id, response)
+                return jsonify({'status': 'ok'}), 200
+            
+            # پردازش مراحل
+            session = db.get_session(chat_id)
+            if session:
+                response, is_complete = UserManager.process_step(chat_id, text)
+                if response:
+                    if is_complete:
+                        TelegramBot.send_message(chat_id, response)
+                    else:
+                        # در مراحل ورود اطلاعات، دکمه لغو نمایش داده شود
+                        if session.get('step') in ['name', 'mother', 'day', 'month', 'year']:
+                            TelegramBot.send_message(
+                                chat_id,
+                                response,
+                                reply_markup=BotKeyboard.get_cancel_keyboard()
+                            )
+                        else:
+                            TelegramBot.send_message(chat_id, response)
+                return jsonify({'status': 'ok'}), 200
+            
+            # دستور نامشخص
+            TelegramBot.send_message(
+                chat_id,
+                "🤔 دستور نامشخص. لطفاً از دکمه‌های پایین استفاده کنید.",
+                reply_markup=BotKeyboard.get_main_keyboard()
+            )
+            return jsonify({'status': 'ok'}), 200
+        
+        return jsonify({'status': 'ok'}), 200
+        
+    except Exception as e:
+        logger.error(f"خطا: {e}")
+        return jsonify({'error': str(e)}), 500
+
+# ==================== صفحه اصلی ====================
+@app.route('/')
+def home():
+    return """
+    <h1>🔮 ربات جفر ۳۶ و ۳۶۰</h1>
+    <p>ربات آنلاین و فعال است ✅</p>
+    <p>برای استفاده به تلگرام بروید: <a href="https://t.me/YourBotUsername">@YourBotUsername</a></p>
+    """
+
+# ==================== اجرا ====================
+if __name__ == '__main__':
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
