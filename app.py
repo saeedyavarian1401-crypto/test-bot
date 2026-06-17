@@ -22,6 +22,34 @@ logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8624726972:AAHa89X4pWrLaD7c-GI3OUjmx7FuSL-5pQQ')
 
+# ==================== منوی پایین تلگرام ====================
+def set_bot_commands():
+    """تنظیم منوی پایین (Command Menu)"""
+    try:
+        commands = [
+            {"command": "start", "description": "🔄 شروع مجدد"},
+            {"command": "ask", "description": "🔮 جفرگیری جدید"},
+            {"command": "menu", "description": "📋 منوی اصلی"},
+            {"command": "history", "description": "📊 تاریخچه سوالات"},
+            {"command": "stats", "description": "📈 آمار من"},
+            {"command": "help", "description": "📖 راهنما"},
+            {"command": "cancel", "description": "❌ لغو عملیات"}
+        ]
+        
+        url = f"https://api.telegram.org/bot{TOKEN}/setMyCommands"
+        response = requests.post(url, json={"commands": commands})
+        
+        if response.status_code == 200:
+            logger.info("✅ منوی پایین با موفقیت ثبت شد")
+            return True
+        else:
+            logger.error(f"❌ خطا در ثبت منو: {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ خطا: {e}")
+        return False
+
 # ==================== دیتابیس ====================
 class Database:
     def __init__(self, db_path='jafr_bot.db'):
@@ -725,7 +753,40 @@ def home():
     <p>برای استفاده به تلگرام بروید: <a href="https://t.me/YourBotUsername">@YourBotUsername</a></p>
     """
 
+# ==================== منوی پایین ====================
+def set_bot_commands():
+    """تنظیم منوی پایین تلگرام (Command Menu)"""
+    try:
+        commands = [
+            {"command": "start", "description": "🔄 شروع مجدد"},
+            {"command": "ask", "description": "🔮 جفرگیری جدید"},
+            {"command": "menu", "description": "📋 منوی اصلی"},
+            {"command": "history", "description": "📊 تاریخچه سوالات"},
+            {"command": "stats", "description": "📈 آمار من"},
+            {"command": "help", "description": "📖 راهنما"},
+            {"command": "cancel", "description": "❌ لغو عملیات"}
+        ]
+        
+        url = f"https://api.telegram.org/bot{TOKEN}/setMyCommands"
+        response = requests.post(url, json={"commands": commands}, timeout=10)
+        
+        if response.status_code == 200:
+            logger.info("✅ منوی پایین با موفقیت ثبت شد")
+            return True
+        else:
+            logger.error(f"❌ خطا در ثبت منو: {response.text}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ خطا در ثبت منو: {e}")
+        return False
+
 # ==================== اجرا ====================
 if __name__ == '__main__':
+    # ثبت منوی پایین قبل از اجرا
+    print("🔮 ثبت منوی پایین تلگرام...")
+    set_bot_commands()
+    
     port = int(os.environ.get('PORT', 5000))
+    print(f"🚀 ربات روی پورت {port} اجرا شد")
     app.run(host='0.0.0.0', port=port, debug=False)
