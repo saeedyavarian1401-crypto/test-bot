@@ -38,21 +38,11 @@ JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
 
-# ==================== سیستم رمز طلسم (امن) ====================
-TALISMAN_SALT = b'occult_talisman_salt_2024'
 
-def _get_talisman_hash() -> str:
-    password = os.environ.get('TALISMAN_PASSWORD', '')
-    if not password:
-        raise ValueError("❌ رمز طلسم در متغیرهای محیطی تنظیم نشده است!")
-    return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
-
-def _hash_input(password: str) -> str:
-    return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
-
+# ==================== سیستم طلسم (بدون رمز) ====================
 class TalismanProtector:
     _instance = None
-    _unlocked = False
+    _unlocked = True  # همیشه باز
     
     def __new__(cls):
         if cls._instance is None:
@@ -64,19 +54,15 @@ class TalismanProtector:
         if self._initialized:
             return
         self._initialized = True
-        self._password_hash = _get_talisman_hash()
     
-    def unlock(self, password: str) -> bool:
-        if _hash_input(password) == self._password_hash:
-            self._unlocked = True
-            return True
-        return False
+    def unlock(self, password: str = None) -> bool:
+        return True
     
     def is_unlocked(self) -> bool:
-        return self._unlocked
+        return True
     
     def lock(self):
-        self._unlocked = False
+        pass
 
 talisman_protector = TalismanProtector()
 
@@ -86,29 +72,17 @@ PUBLIC_TALISMANS = [
     {"کاربرد": "رزق و روزی", "طلسم": "مربع جادویی 4×4", "روز": "پنجشنبه", "ساعت": "مشتری"},
     {"کاربرد": "محبت و دوستی", "طلسم": "ستاره داوود", "روز": "جمعه", "ساعت": "زهره"},
     {"کاربرد": "دفع بلا", "طلسم": "خاتم سلیمان", "روز": "سه‌شنبه", "ساعت": "مریخ"},
-    {"کاربرد": "گشایش کار", "طلسم": "وفق ابواب الفرج", "روز": "پنجشنبه", "ساعت": "مشتری"},
-    {"کاربرد": "شفای بیماری", "طلسم": "حرز شفا", "روز": "دوشنبه", "ساعت": "ماه"},
 ]
 
 PROTECTED_TALISMANS = [
-    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی قدرت", "روز": "یکشنبه", "ساعت": "شمس", "درجه": "ویژه"},
-    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره", "درجه": "بسیار ویژه"},
-    {"کاربرد": "بخت گشایی", "طلسم": "طلسم الفتح العظیم", "روز": "پنجشنبه", "ساعت": "مشتری", "درجه": "نادر"},
-    {"کاربرد": "تسخیر قلوب", "طلسم": "خاتم سلیمانی", "روز": "دوشنبه", "ساعت": "عطارد", "درجه": "فوق‌العاده"},
-    {"کاربرد": "دفع سحر", "طلسم": "حرز امان", "روز": "سه‌شنبه", "ساعت": "زحل", "درجه": "ویژه"},
+    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی قدرت", "روز": "یکشنبه", "ساعت": "شمس"},
+    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره"},
 ]
 
 def get_talismans(with_protected: bool = False, password: str = None):
     talismans = PUBLIC_TALISMANS.copy()
-    
     if with_protected:
-        if not password:
-            raise ValueError("❌ برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
-        if talisman_protector.unlock(password):
-            talismans.extend(PROTECTED_TALISMANS)
-        else:
-            raise PermissionError("❌ رمز اشتباه است!")
-    
+        talismans.extend(PROTECTED_TALISMANS)
     return talismans
 
 
