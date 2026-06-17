@@ -2349,12 +2349,12 @@ def set_bot_commands():
     try:
         commands = [
             {"command": "start", "description": "🔄 شروع مجدد"},
-            {"command": "ask", "description": "🔮 جفرگیری"},
+            
             {"command": "menu", "description": "📋 منوی اصلی"},
             {"command": "history", "description": "📊 تاریخچه سوالات"},
             {"command": "stats", "description": "📈 آمار من"},
             {"command": "help", "description": "📖 راهنما"},
-            {"command": "cancel", "description": "❌ لغو عملیات"}
+           
         ]
         
         url = f"https://api.telegram.org/bot{TOKEN}/setMyCommands"
