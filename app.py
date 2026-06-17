@@ -238,3 +238,197 @@ class RedisCache:
         return self._enabled
 
 cache = RedisCache()
+# ==================== database.py ====================
+from config import *
+
+class Database:
+    def __init__(self, db_path='jafr_bot.db'):
+        self.db_path = db_path
+        self.init_db()
+    
+    @contextmanager
+    def get_connection(self):
+        conn = sqlite3.connect(self.db_path)
+        conn.row_factory = sqlite3.Row
+        try:
+            yield conn
+        finally:
+            conn.close()
+    
+    def init_db(self):
+        with self.get_connection() as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS users (
+                    chat_id TEXT PRIMARY KEY,
+                    username TEXT,
+                    first_name TEXT,
+                    last_name TEXT,
+                    registered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    total_queries INTEGER DEFAULT 0
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    chat_id TEXT PRIMARY KEY,
+                    step TEXT,
+                    name TEXT,
+                    mother TEXT,
+                    day INTEGER,
+                    month INTEGER,
+                    year INTEGER,
+                    question TEXT,
+                    jafr_type TEXT,
+                    fortune_type TEXT,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS query_history (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    chat_id TEXT,
+                    question TEXT,
+                    jafr_36_result TEXT,
+                    jafr_360_result TEXT,
+                    fortune_type TEXT,
+                    fortune_result TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS predictions (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    name TEXT NOT NULL,
+                    mother TEXT NOT NULL,
+                    birth_date TEXT NOT NULL,
+                    question TEXT,
+                    result_encrypted TEXT NOT NULL,
+                    created_at TEXT NOT NULL,
+                    processing_time_ms REAL DEFAULT 0,
+                    mode TEXT DEFAULT 'complete'
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS fortune_readings (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    type TEXT NOT NULL,
+                    input_data TEXT,
+                    result_encrypted TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+            ''')
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS requests (
+                    id TEXT PRIMARY KEY,
+                    user_id TEXT,
+                    endpoint TEXT,
+                    status_code INTEGER,
+                    processing_time_ms REAL,
+                    timestamp TEXT
+                )
+            ''')
+            conn.commit()
+            logger.info("✅ دیتابیس راه‌اندازی شد")
+    
+    def get_user(self, chat_id: str) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            result = conn.execute('SELECT * FROM users WHERE chat_id = ?', (chat_id,)).fetchone()
+            return dict(result) if result else None
+    
+    def create_user(self, chat_id: str, username: str = '', first_name: str = '', last_name: str = ''):
+        with self.get_connection() as conn:
+            conn.execute(
+                'INSERT OR REPLACE INTO users (chat_id, username, first_name, last_name) VALUES (?, ?, ?, ?)',
+                (chat_id, username, first_name, last_name)
+            )
+            conn.commit()
+    
+    def increment_queries(self, chat_id: str):
+        with self.get_connection() as conn:
+            conn.execute('UPDATE users SET total_queries = total_queries + 1 WHERE chat_id = ?', (chat_id,))
+            conn.commit()
+    
+    def save_session(self, chat_id: str, step: str, **kwargs):
+        with self.get_connection() as conn:
+            conn.execute('DELETE FROM user_sessions WHERE chat_id = ?', (chat_id,))
+            conn.execute(
+                '''INSERT INTO user_sessions 
+                   (chat_id, step, name, mother, day, month, year, question, jafr_type, fortune_type) 
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                (chat_id, step, 
+                 kwargs.get('name', ''),
+                 kwargs.get('mother', ''),
+                 kwargs.get('day', None),
+                 kwargs.get('month', None),
+                 kwargs.get('year', None),
+                 kwargs.get('question', ''),
+                 kwargs.get('jafr_type', 'both'),
+                 kwargs.get('fortune_type', None))
+            )
+            conn.commit()
+    
+    def get_session(self, chat_id: str) -> Optional[Dict]:
+        with self.get_connection() as conn:
+            result = conn.execute('SELECT * FROM user_sessions WHERE chat_id = ?', (chat_id,)).fetchone()
+            return dict(result) if result else None
+    
+    def delete_session(self, chat_id: str):
+        with self.get_connection() as conn:
+            conn.execute('DELETE FROM user_sessions WHERE chat_id = ?', (chat_id,))
+            conn.commit()
+    
+    def save_query_history(self, chat_id: str, question: str, j36: Dict = None, j360: Dict = None, 
+                           fortune_type: str = None, fortune_result: Dict = None):
+        with self.get_connection() as conn:
+            conn.execute(
+                '''INSERT INTO query_history 
+                   (chat_id, question, jafr_36_result, jafr_360_result, fortune_type, fortune_result) 
+                   VALUES (?, ?, ?, ?, ?, ?)''',
+                (chat_id, question, 
+                 json.dumps(j36) if j36 else None, 
+                 json.dumps(j360) if j360 else None, 
+                 fortune_type, 
+                 json.dumps(fortune_result) if fortune_result else None)
+            )
+            conn.commit()
+    
+    def save_prediction(self, prediction_id: str, user_id: str, name: str, mother: str, 
+                        birth_date: str, question: str, result: Dict, processing_time_ms: float, mode: str = "complete"):
+        encrypted_result = base64.b64encode(json.dumps(result, ensure_ascii=False).encode()).decode()
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT INTO predictions (id, user_id, name, mother, birth_date, question, result_encrypted, created_at, processing_time_ms, mode)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ''', (prediction_id, user_id, name, mother, birth_date, question, encrypted_result, 
+                  datetime.now().isoformat(), processing_time_ms, mode))
+            conn.commit()
+    
+    def save_fortune_reading(self, reading_id: str, user_id: str, reading_type: str, input_data: Dict, result: Dict):
+        encrypted_result = base64.b64encode(json.dumps(result, ensure_ascii=False).encode()).decode()
+        with self.get_connection() as conn:
+            conn.execute('''
+                INSERT INTO fortune_readings (id, user_id, type, input_data, result_encrypted, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+            ''', (reading_id, user_id, reading_type, json.dumps(input_data), encrypted_result, datetime.now().isoformat()))
+            conn.commit()
+    
+    def get_stats(self) -> Dict:
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT COUNT(*) FROM predictions')
+            total_predictions = cursor.fetchone()[0]
+            cursor.execute('SELECT AVG(processing_time_ms) FROM predictions')
+            avg_time = cursor.fetchone()[0] or 0
+            cursor.execute('SELECT COUNT(*) FROM requests WHERE status_code = 200')
+            success_requests = cursor.fetchone()[0]
+            cursor.execute('SELECT COUNT(*) FROM requests')
+            total_requests = cursor.fetchone()[0] or 1
+            return {
+                "total_predictions": total_predictions,
+                "average_processing_time_ms": round(avg_time, 2),
+                "success_rate": round((success_requests / total_requests) * 100, 2),
+                "total_requests": total_requests
+            }
+
+db = Database()
