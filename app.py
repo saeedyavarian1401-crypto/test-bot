@@ -941,6 +941,41 @@ TelegramBot.send_message(
     "🔮 منوی اصلی",
     reply_markup=BotKeyboard.get_main_keyboard()  # بازگشت کیبورد
 )
-🔮 جفرگیری     📊 تاریخچه
-📖 راهنما       📈 آمار من
-ℹ️ درباره       ❌ لغو عملیات
+# ==================== کیبورد دائمی ====================
+class BotKeyboard:
+    """کیبورد دائمی در پایین صفحه"""
+    
+    @staticmethod
+    def get_main_keyboard():
+        """کیبورد اصلی - همیشه در پایین صفحه"""
+        keyboard = [
+            ['🔮 جفرگیری', '📊 تاریخچه'],
+            ['📖 راهنما', '📈 آمار من'],
+            ['ℹ️ درباره', '❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,
+            'one_time_keyboard': False,
+            'persistent': True
+        }
+    
+    @staticmethod
+    def get_cancel_keyboard():
+        """کیبورد با دکمه لغو"""
+        keyboard = [
+            ['❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,
+            'one_time_keyboard': False,
+            'persistent': True
+        }
+        # در قسمت webhook
+if text == '/start':
+    TelegramBot.send_message(
+        chat_id,
+        "🔮 **ربات جفر**\n\nسلام! لطفاً یکی از گزینه‌ها را انتخاب کنید:",
+        reply_markup=BotKeyboard.get_main_keyboard()
+    )
