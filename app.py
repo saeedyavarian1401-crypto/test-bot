@@ -37,7 +37,7 @@ TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8624726972:AAHa89X4pWrLaD7c-GI3OUj
 JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
-# ==================== سیستم رمز  برای طلسمات ====================
+# ==================== سیستم رمز 13640624 برای طلسمات ====================
 import hashlib
 TALISMAN_HASH = hashlib.sha256("13640624".encode()).hexdigest()
 
