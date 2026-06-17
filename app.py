@@ -810,3 +810,48 @@ def home():
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     app.run(host='0.0.0.0', port=port, debug=False)
+# ==================== تنظیم وب‌هوک ====================
+def set_webhook():
+    """تنظیم وب‌هوک برای ربات"""
+    webhook_url = os.environ.get('WEBHOOK_URL')
+    
+    if not webhook_url:
+        # برای اجرای محلی
+        webhook_url = "https://your-domain.com/webhook"
+        logger.warning("WEBHOOK_URL تنظیم نشده! از آدرس پیش‌فرض استفاده می‌شود.")
+        return False
+    
+    try:
+        # حذف وب‌هوک قبلی (اختیاری)
+        requests.get(f"https://api.telegram.org/bot{TOKEN}/deleteWebhook")
+        
+        # تنظیم وب‌هوک جدید
+        response = requests.post(
+            f"https://api.telegram.org/bot{TOKEN}/setWebhook",
+            json={'url': f"{webhook_url}/webhook"}
+        )
+        
+        if response.status_code == 200:
+            data = response.json()
+            if data.get('ok'):
+                logger.info(f"✅ وب‌هوک با موفقیت تنظیم شد: {webhook_url}/webhook")
+                return True
+            else:
+                logger.error(f"❌ خطا در تنظیم وب‌هوک: {data}")
+                return False
+        else:
+            logger.error(f"❌ خطا در تنظیم وب‌هوک: {response.status_code}")
+            return False
+            
+    except Exception as e:
+        logger.error(f"❌ خطا در تنظیم وب‌هوک: {e}")
+        return False
+
+# ==================== اجرا ====================
+if __name__ == '__main__':
+    # تنظیم وب‌هوک در شروع
+    if os.environ.get('RENDER'):  # اگر در Render اجرا می‌شود
+        set_webhook()
+    
+    port = int(os.environ.get('PORT', 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
