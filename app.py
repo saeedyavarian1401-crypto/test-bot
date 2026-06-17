@@ -21,34 +21,45 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 TOKEN = os.environ.get('TELEGRAM_BOT_TOKEN', '8624726972:AAHa89X4pWrLaD7c-GI3OUjmx7FuSL-5pQQ')
+GROQ_API_KEY = os.environ.get('GROQ_API_KEY', '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')
 
-# ==================== منوی پایین تلگرام ====================
-def set_bot_commands():
-    """تنظیم منوی پایین (Command Menu)"""
-    try:
-        commands = [
-            {"command": "start", "description": "🔄 شروع مجدد"},
-            {"command": "ask", "description": "🔮 جفرگیری جدید"},
-            {"command": "menu", "description": "📋 منوی اصلی"},
-            {"command": "history", "description": "📊 تاریخچه سوالات"},
-            {"command": "stats", "description": "📈 آمار من"},
-            {"command": "help", "description": "📖 راهنما"},
-            {"command": "cancel", "description": "❌ لغو عملیات"}
-        ]
-        
-        url = f"https://api.telegram.org/bot{TOKEN}/setMyCommands"
-        response = requests.post(url, json={"commands": commands})
-        
-        if response.status_code == 200:
-            logger.info("✅ منوی پایین با موفقیت ثبت شد")
-            return True
-        else:
-            logger.error(f"❌ خطا در ثبت منو: {response.text}")
-            return False
+# ==================== هوش مصنوعی گروک ====================
+class GroqAI:
+    def __init__(self, api_key: str):
+        self.api_key = api_key
+        self.base_url = "https://api.groq.com/openai/v1/chat/completions"
+    
+    def ask(self, prompt: str, model: str = "llama-3.3-70b-versatile") -> str:
+        """ارسال سوال به گروک و دریافت پاسخ"""
+        try:
+            headers = {
+                "Authorization": f"Bearer {self.api_key}",
+                "Content-Type": "application/json"
+            }
             
-    except Exception as e:
-        logger.error(f"❌ خطا: {e}")
-        return False
+            data = {
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": "تو یک متخصص علوم غریبه و جفر هستی. پاسخ‌هایت را به فارسی و با لحنی آرام و قابل فهم بده."},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": 0.7,
+                "max_tokens": 1024
+            }
+            
+            response = requests.post(self.base_url, headers=headers, json=data, timeout=30)
+            
+            if response.status_code == 200:
+                return response.json()["choices"][0]["message"]["content"]
+            else:
+                logger.error(f"خطا در گروک: {response.status_code} - {response.text}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"خطا در اتصال به گروک: {e}")
+            return None
+
+groq = GroqAI(GROQ_API_KEY)
 
 # ==================== دیتابیس ====================
 class Database:
@@ -98,6 +109,7 @@ class Database:
                     question TEXT,
                     jafr_36_result TEXT,
                     jafr_360_result TEXT,
+                    groq_interpretation TEXT,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             ''')
@@ -149,11 +161,13 @@ class Database:
             conn.execute('DELETE FROM user_sessions WHERE chat_id = ?', (chat_id,))
             conn.commit()
     
-    def save_query_history(self, chat_id: str, question: str, j36: Dict, j360: Dict):
+    def save_query_history(self, chat_id: str, question: str, j36: Dict, j360: Dict, interpretation: str):
         with self.get_connection() as conn:
             conn.execute(
-                '''INSERT INTO query_history (chat_id, question, jafr_36_result, jafr_360_result) VALUES (?, ?, ?, ?)''',
-                (chat_id, question, json.dumps(j36), json.dumps(j360))
+                '''INSERT INTO query_history 
+                   (chat_id, question, jafr_36_result, jafr_360_result, groq_interpretation) 
+                   VALUES (?, ?, ?, ?, ?)''',
+                (chat_id, question, json.dumps(j36), json.dumps(j360), interpretation)
             )
             conn.commit()
 
@@ -411,6 +425,67 @@ class SmartJafrCalculator:
                     remainder=remainder
                 )
 
+# ==================== تعبیر هوشمند با گروک ====================
+def get_jafr_interpretation(question: str, name: str, mother: str, j36: JafrResult, j360: JafrResult) -> str:
+    """گرفتن تعبیر هوشمندانه از جفر با کمک گروک"""
+    
+    prompt = f"""
+شما یک متخصص علوم غریبه و جفر هستید.
+
+اطلاعات کاربر:
+- نام: {name}
+- نام مادر: {mother}
+- سوال: {question}
+
+نتیجه جفر ۳۶:
+- پاسخ: {j36.answer}
+- امتیاز: {j36.score}/100
+- توصیه: {j36.advice}
+
+نتیجه جفر ۳۶۰:
+- پاسخ: {j360.answer}
+- امتیاز: {j360.score}/100
+- درجه: {j360.degree if j360.degree else '---'}
+- توصیه: {j360.advice}
+
+لطفاً یک تعبیر جامع، دقیق و شخصی‌سازی شده برای این کاربر ارائه بده.
+
+تعبیرت باید شامل موارد زیر باشد:
+1. تحلیل کلی وضعیت (با توجه به عدد جفر و سوال کاربر)
+2. توصیه‌های عملی و روزمره
+3. اگر سوال منفی است، راهکارهای رفع آن
+4. اگر سوال مثبت است، راهکارهای تقویت آن
+5. یک جمله الهام‌بخش پایانی
+
+تعبیر را به فارسی روان و قابل فهم بنویس.
+"""
+    
+    response = groq.ask(prompt)
+    
+    if response:
+        return response
+    else:
+        # اگر گروک جواب نداد، از جواب‌های پیش‌فرض استفاده کن
+        return f"""
+🔮 **تعبیر جفر برای {name}**
+
+بر اساس محاسبات جفر و تحلیل سوال شما:
+
+📖 **جفر ۳۶**
+{j36.answer}
+امتیاز: {j36.score}/100
+
+📖 **جفر ۳۶۰** (دقیق‌تر)
+{j360.answer}
+امتیاز: {j360.score}/100
+درجه: {j360.degree if j360.degree else '---'}
+
+💡 **توصیه کلی:**
+{j36.advice}
+
+⚠️ تعبیر هوشمند در دسترس نیست. لطفاً دوباره تلاش کنید.
+"""
+
 # ==================== کیبورد دائمی ====================
 class BotKeyboard:
     @staticmethod
@@ -492,8 +567,8 @@ class UserManager:
     def get_history(chat_id: str) -> str:
         with db.get_connection() as conn:
             results = conn.execute(
-                '''SELECT question, created_at FROM query_history 
-                   WHERE chat_id = ? ORDER BY created_at DESC LIMIT 10''',
+                '''SELECT question, groq_interpretation, created_at FROM query_history 
+                   WHERE chat_id = ? ORDER BY created_at DESC LIMIT 5''',
                 (chat_id,)
             ).fetchall()
         
@@ -502,21 +577,26 @@ class UserManager:
         
         history = "📜 **تاریخچه سوالات**\n\n"
         for i, row in enumerate(results, 1):
-            history += f"{i}. {row['question']}\n🕐 {row['created_at'][:16]}\n\n"
+            history += f"{i}. {row['question']}\n🕐 {row['created_at'][:16]}\n"
+            if row['groq_interpretation']:
+                history += f"📖 {row['groq_interpretation'][:100]}...\n"
+            history += "\n"
         return history
     
     @staticmethod
     def get_help_message() -> str:
         return """
-📖 **راهنمای ربات جفر**
+📖 **راهنمای ربات جفر + هوش مصنوعی**
 
 🔮 **چگونه کار می‌کند؟**
-با استفاده از علم جفر و محاسبات آبجدی
+1. محاسبه جفر ۳۶ و ۳۶۰ با استفاده از علم ابجد
+2. تعبیر و تفسیر هوشمند با کمک هوش مصنوعی گروک
 
 📝 **مراحل استفاده:**
 1. روی دکمه جفرگیری کلیک کنید
 2. اطلاعات خود را وارد کنید
 3. سوال خود را بپرسید
+4. نتیجه را با تعبیر هوشمند دریافت کنید
 
 ⚠️ **توجه:** صرفاً جنبه سرگرمی دارد.
 """
@@ -609,8 +689,11 @@ class UserManager:
         j36 = SmartJafrCalculator.calculate_36(question, name, mother, day, month, year)
         j360 = SmartJafrCalculator.calculate_360(question, name, mother, day, month, year)
         
+        # تعبیر هوشمند با گروک
+        interpretation = get_jafr_interpretation(question, name, mother, j36, j360)
+        
         db.increment_queries(chat_id)
-        db.save_query_history(chat_id, question, j36.to_dict(), j360.to_dict())
+        db.save_query_history(chat_id, question, j36.to_dict(), j360.to_dict(), interpretation)
         db.delete_session(chat_id)
         
         response = f"""
@@ -638,6 +721,11 @@ class UserManager:
         
         response += f"""
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🤖 **تعبیر هوشمند با گروک**
+
+{interpretation}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 📅 {datetime.now().strftime('%Y/%m/%d %H:%M')}
 """
         return response
@@ -661,7 +749,7 @@ def webhook():
             if text == '/start' or text == '/menu':
                 TelegramBot.send_message(
                     chat_id,
-                    "🔮 **ربات جفر ۳۶ و ۳۶۰**\n\nسلام! 👋\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
+                    "🔮 **ربات جفر ۳۶ و ۳۶۰ + هوش مصنوعی**\n\nسلام! 👋\nاین ربات با ترکیب علم جفر و هوش مصنوعی گروک به سوالات شما پاسخ می‌دهد.\n\nلطفاً یکی از گزینه‌های زیر را انتخاب کنید:",
                     reply_markup=BotKeyboard.get_main_keyboard()
                 )
                 return jsonify({'status': 'ok'}), 200
@@ -702,7 +790,7 @@ def webhook():
             elif text == 'ℹ️ درباره':
                 TelegramBot.send_message(
                     chat_id,
-                    "ℹ️ **درباره ربات**\n\nنسخه ۲.۰.۰\nربات جفر هوشمند\nتوسعه‌دهنده: تیم جفر"
+                    "ℹ️ **درباره ربات**\n\nنسخه ۳.۰.۰\nربات جفر هوشمند با گروک\n\n⚡ ترکیب علم جفر و هوش مصنوعی\n🔮 تعبیر شخصی‌سازی شده\n📊 تاریخچه سوالات"
                 )
                 return jsonify({'status': 'ok'}), 200
             
@@ -719,7 +807,6 @@ def webhook():
                     if is_complete:
                         TelegramBot.send_message(chat_id, response)
                     else:
-                        # در مراحل ورود اطلاعات، دکمه لغو نمایش داده شود
                         if session.get('step') in ['name', 'mother', 'day', 'month', 'year']:
                             TelegramBot.send_message(
                                 chat_id,
@@ -748,9 +835,9 @@ def webhook():
 @app.route('/')
 def home():
     return """
-    <h1>🔮 ربات جفر ۳۶ و ۳۶۰</h1>
+    <h1>🔮 ربات جفر ۳۶ و ۳۶۰ + هوش مصنوعی</h1>
     <p>ربات آنلاین و فعال است ✅</p>
-    <p>برای استفاده به تلگرام بروید: <a href="https://t.me/YourBotUsername">@YourBotUsername</a></p>
+    <p>⚡ ترکیب علم جفر و هوش مصنوعی گروک</p>
     """
 
 # ==================== منوی پایین ====================
@@ -759,7 +846,7 @@ def set_bot_commands():
     try:
         commands = [
             {"command": "start", "description": "🔄 شروع مجدد"},
-            {"command": "ask", "description": "🔮 جفرگیری جدید"},
+            {"command": "ask", "description": "🔮 جفرگیری هوشمند"},
             {"command": "menu", "description": "📋 منوی اصلی"},
             {"command": "history", "description": "📊 تاریخچه سوالات"},
             {"command": "stats", "description": "📈 آمار من"},
@@ -783,7 +870,6 @@ def set_bot_commands():
 
 # ==================== اجرا ====================
 if __name__ == '__main__':
-    # ثبت منوی پایین قبل از اجرا
     print("🔮 ثبت منوی پایین تلگرام...")
     set_bot_commands()
     
