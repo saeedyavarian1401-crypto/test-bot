@@ -2341,3 +2341,34 @@ if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
     print(f"🚀 ربات نسخه ۵.۰.۰ کامل روی پورت {port} اجرا شد")
     app.run(host='0.0.0.0', port=port, debug=False)
+# ==================== منوی کامل ====================
+class BotKeyboard:
+    @staticmethod
+    def get_main_keyboard():
+        keyboard = [
+            ['🔮 جفرگیری', '📊 تاریخچه'],
+            ['☕ فال قهوه', '✋ کف‌بینی'],
+            ['📖 فال حافظ', '📖 فال قرآن'],
+            ['🃏 فال تاروت', '🤲 استخاره'],
+            ['🔐 طلسمات ویژه', '📈 آمار من'],
+            ['📖 راهنما', 'ℹ️ درباره'],
+            ['❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,
+            'one_time_keyboard': False,
+            'persistent': True
+        }
+    
+    @staticmethod
+    def get_cancel_keyboard():
+        keyboard = [
+            ['❌ لغو عملیات']
+        ]
+        return {
+            'keyboard': keyboard,
+            'resize_keyboard': True,
+            'one_time_keyboard': False,
+            'persistent': True
+        }
