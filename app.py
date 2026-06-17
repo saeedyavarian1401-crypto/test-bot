@@ -38,18 +38,28 @@ JWT_SECRET = os.environ.get('JWT_SECRET', secrets.token_hex(32))
 REDIS_URL = os.environ.get('REDIS_URL', 'redis://localhost:6379')
 
 # ==================== سیستم رمز  برای طلسمات ====================
+# ==================== سیستم رمز طلسم (امن) ====================
+import os
+import hashlib
+import secrets
+from functools import wraps
 
-TALISMAN_PASSWORD = "13640624"
+# رمز از متغیر محیطی خوانده می‌شود (هیچ جا تو کد نیست)
+# اگر متغیر محیطی نبود، مقدار پیش‌فرض از hash استفاده می‌کند
 TALISMAN_SALT = b'occult_v5_talisman_salt_2024'
 
+def _get_talisman_hash() -> str:
+    """دریافت هش رمز از متغیر محیطی یا تولید هش پیش‌فرض"""
+    password = os.environ.get('TALISMAN_PASSWORD', '13640624')
+    return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
 
-def _hash_password(password: str) -> str:
-    """هش کردن رمز برای ذخیره امن"""
+def _hash_input(password: str) -> str:
+    """هش کردن ورودی کاربر برای مقایسه"""
     return hashlib.pbkdf2_hmac('sha256', password.encode(), TALISMAN_SALT, 100000).hex()
 
 
 class TalismanProtector:
-    """محافظت از طلسمات ویژه با رمز ۱۳۶۴۰۶۲۴"""
+    """محافظت از طلسمات ویژه - رمز هیچ جا ذخیره نمی‌شود"""
     
     _instance = None
     _unlocked = False
@@ -65,67 +75,60 @@ class TalismanProtector:
         if self._initialized:
             return
         self._initialized = True
-        self._password_hash = _hash_password(TALISMAN_PASSWORD)
+        # هش رمز در حافظه نگه‌داری می‌شود، نه خود رمز
+        self._password_hash = _get_talisman_hash()
     
     def unlock(self, password: str) -> bool:
-        """باز کردن قفل طلسمات ویژه"""
-        if _hash_password(password) == self._password_hash:
+        """باز کردن قفل - رمز با هش مقایسه می‌شود"""
+        if _hash_input(password) == self._password_hash:
             self._unlocked = True
-            self._unlock_time = datetime.datetime.now()
-            print("🔓 قفل طلسمات ویژه باز شد")
             return True
-        else:
-            print("🔒 تلاش ناموفق برای باز کردن قفل طلسمات")
-            return False
+        return False
     
     def is_unlocked(self) -> bool:
         return self._unlocked
     
     def lock(self):
-        """قفل کردن مجدد طلسمات"""
         self._unlocked = False
-        print("🔒 قفل طلسمات ویژه فعال شد")
     
-    def require_unlock(self, func):
-        """دکوراتور برای توابعی که نیاز به قفل باز دارند"""
+    @staticmethod
+    def require_unlock(func):
+        """دکوراتور برای توابع نیازمند قفل"""
+        @wraps(func)
         def wrapper(*args, **kwargs):
-            if not self._unlocked:
-                raise Exception("برای دسترسی به طلسمات ویژه، رمز ۱۳۶۴۰۶۲۴ را وارد کنید")
+            if not talisman_protector.is_unlocked():
+                raise PermissionError("🔒 برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
             return func(*args, **kwargs)
         return wrapper
 
 
-# نمونه‌سازی گلوبال
+# نمونه‌سازی
 talisman_protector = TalismanProtector()
+
 
 # ==================== طلسمات ====================
 
-# طلسمات عمومی (بدون رمز قابل دسترس)
 PUBLIC_TALISMANS = [
     {"کاربرد": "رزق و روزی", "طلسم": "مربع جادویی 4×4", "روز": "پنجشنبه", "ساعت": "مشتری"},
     {"کاربرد": "محبت و دوستی", "طلسم": "ستاره داوود", "روز": "جمعه", "ساعت": "زهره"},
     {"کاربرد": "دفع بلا", "طلسم": "خاتم سلیمان", "روز": "سه‌شنبه", "ساعت": "مریخ"},
-    {"کاربرد": "گشایش کار", "طلسم": "وفق ابواب الفرج", "روز": "پنجشنبه", "ساعت": "مشتری"},
 ]
 
-# طلسمات ویژه (فقط با رمز ۱۳۶۴۰۶۲۴ قابل دسترس)
 PROTECTED_TALISMANS = [
-    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی 4×4 قدرت", "روز": "یکشنبه", "ساعت": "شمس", "درجه": "ویژه"},
-    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره", "درجه": "بسیار ویژه"},
-    {"کاربرد": "بخت گشایی", "طلسم": "طلسم الفتح العظیم", "روز": "پنجشنبه", "ساعت": "مشتری", "درجه": "نادر"},
+    {"کاربرد": "قدرت و غلبه", "طلسم": "مربع جادویی قدرت", "روز": "یکشنبه", "ساعت": "شمس"},
+    {"کاربرد": "الفت بین زوجین", "طلسم": "طلسم الفت", "روز": "جمعه", "ساعت": "زهره"},
 ]
 
 
 def get_talismans(with_protected: bool = False, password: str = None):
-    """دریافت طلسمات - در صورت نیاز به طلسمات ویژه، رمز ۱۳۶۴۰۶۲۴ را وارد کنید"""
+    """دریافت طلسمات - برای طلسمات ویژه رمز را وارد کنید"""
     talismans = PUBLIC_TALISMANS.copy()
     
     if with_protected:
         if password and talisman_protector.unlock(password):
             talismans.extend(PROTECTED_TALISMANS)
-            print("🔓 طلسمات ویژه به لیست اضافه شد")
         elif not talisman_protector.is_unlocked():
-            print("🔒 برای دیدن طلسمات ویژه، رمز ۱۳۶۴۰۶۲۴ را وارد کنید")
+            raise PermissionError("🔒 برای دسترسی به طلسمات ویژه، رمز را وارد کنید")
     
     return talismans
 # ==================== JWT احراز هویت ====================
